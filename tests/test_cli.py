@@ -14,6 +14,46 @@ class CliTests(unittest.TestCase):
             result = main(args)
         return result, out.getvalue(), err.getvalue()
 
+    def test_macos_fixture_is_independent_of_host_platform(self):
+        from iterm2_utils.discovery import discover, resolve_paths
+        for host in ('Linux', 'Darwin'):
+            with self.subTest(host=host), patch('platform.system', return_value=host):
+                with Fixture() as f:
+                    context = discover(resolve_paths(), f.runner)
+                    self.assertIn('macos', context.capabilities)
+                    code, _, err = self.invoke(f, ['plan', '--agent', 'claude', '--features', 'shell'])
+                    self.assertEqual(code, 0, err)
+
+    def test_fixture_restores_nested_platform_and_home_after_exception(self):
+        import os
+        import platform
+        with patch('platform.system', return_value='HostOS'), patch.dict(os.environ, {'HOME': '/fixture-host-home'}):
+            with Fixture() as outer:
+                self.assertEqual(platform.system(), 'Darwin')
+                with self.assertRaisesRegex(RuntimeError, 'fixture failure'):
+                    with Fixture(platform='Linux') as inner:
+                        inner_home = inner.home
+                        self.assertEqual(platform.system(), 'Linux')
+                        self.assertEqual(os.environ['HOME'], str(inner.home))
+                        raise RuntimeError('fixture failure')
+                self.assertFalse(inner_home.exists())
+                self.assertEqual(platform.system(), 'Darwin')
+                self.assertEqual(os.environ['HOME'], str(outer.home))
+            self.assertFalse(outer.home.exists())
+            self.assertEqual(platform.system(), 'HostOS')
+            self.assertEqual(os.environ['HOME'], '/fixture-host-home')
+
+    def test_linux_fixture_rejects_plan_and_install_without_writes(self):
+        with Fixture(platform='Linux') as f:
+            before = f.snapshot()
+            for command in ('plan', 'install'):
+                with self.subTest(command=command):
+                    code, out, err = self.invoke(f, [command, '--agent', 'claude', '--features', 'shell', '--json'])
+                    self.assertEqual(code, 2, err)
+                    self.assertTrue(any(item['code'] == 'unsupported_platform' and item['state'] == 'unavailable'
+                                        for item in json.loads(out)['findings']))
+                    self.assertEqual(f.snapshot(), before)
+
     def test_empty_choice_writes_nothing(self):
         with Fixture() as f:
             before = f.snapshot()

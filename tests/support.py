@@ -18,6 +18,11 @@ class FakeRunner:
 
 
 class Fixture:
+    """Synthetic macOS environment, with explicit overrides for platform negatives."""
+
+    def __init__(self, *, platform='Darwin'):
+        self.platform = platform
+
     def __enter__(self):
         self.tmp = TemporaryDirectory()
         self.home = Path(self.tmp.name)
@@ -39,6 +44,8 @@ class Fixture:
         it2.chmod(0o755)
         self.env = patch.dict(os.environ, {'HOME': str(self.home), 'PATH': str(self.bin), 'ITERM2_APP': str(self.app), 'SHELL': str(self.bin / 'zsh')}, clear=True)
         self.env.start()
+        self.system = patch('iterm2_utils.discovery.platform.system', return_value=self.platform)
+        self.system.start()
         self.runner = FakeRunner()
         return self
 
@@ -46,5 +53,6 @@ class Fixture:
         return {str(p.relative_to(self.home)): p.read_bytes() for p in self.home.rglob('*') if p.is_file()}
 
     def __exit__(self, *args):
+        self.system.stop()
         self.env.stop()
         self.tmp.cleanup()
