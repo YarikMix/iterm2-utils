@@ -205,3 +205,19 @@ class LifecycleTests(LifecycleFixture):
         self.assertFalse(any(r['target']==str(p.resolve()) for r in result.receipt.resources))
         lifecycle.uninstall(self.context,frozenset({'shortcuts'}),self.runner)
         self.assertEqual(p.read_bytes(),before)
+
+    def test_partial_uninstall_keeps_checkpoint_when_shell_recomposition_fails(self):
+        initial=self.install('shell','status');self.assertSuccess(initial)
+        before=self.snapshot();self.context.executables.pop('python3')
+        result=lifecycle.uninstall(self.context,frozenset({'shell'}),self.runner)
+        self.assertTrue(any(f.state in {'conflict','missing_dependency'} for f in result.findings))
+        self.assertEqual(result.receipt,initial.receipt)
+        self.assertEqual(self.snapshot(),before)
+
+    def test_partial_uninstall_keeps_checkpoint_when_profile_recomposition_fails(self):
+        initial=self.install('clipboard','shortcuts',shortcuts=('resume',));self.assertSuccess(initial)
+        before=self.snapshot();self.context.profiles.clear()
+        result=lifecycle.uninstall(self.context,frozenset({'clipboard'}),self.runner)
+        self.assertTrue(any(f.code=='missing_parent' for f in result.findings))
+        self.assertEqual(result.receipt,initial.receipt)
+        self.assertEqual(self.snapshot(),before)

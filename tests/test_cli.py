@@ -90,3 +90,16 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code,2)
             self.assertEqual(json.loads(out)['findings'][0]['code'],'ownership_unavailable')
             self.assertEqual(f.snapshot(),before)
+
+    def test_doctor_reports_corrupt_receipt_without_mutation(self):
+        from iterm2_utils.discovery import resolve_paths
+        with Fixture() as f:
+            code,out,err=self.invoke(f,['install','--agent','codex','--features','shell','--json'])
+            self.assertEqual(code,0,err)
+            path=resolve_paths().data/'receipt.json';path.write_text('{PRIVATE_CORRUPT_RECEIPT')
+            before=f.snapshot()
+            code,out,err=self.invoke(f,['doctor','--json'])
+            self.assertEqual(code,2)
+            self.assertTrue(any(item['code']=='ownership_unavailable' and item['state']=='conflict' for item in json.loads(out)['findings']))
+            self.assertNotIn('PRIVATE_CORRUPT_RECEIPT',out+err)
+            self.assertEqual(f.snapshot(),before)

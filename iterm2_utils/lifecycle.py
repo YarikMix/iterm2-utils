@@ -186,7 +186,18 @@ def uninstall(context, owners, runner, *, dry_run=False):
     # profiles and shell blocks; never re-register an unrelated retained MCP.
     affected_shared.discard('shared:runtime')
     prepared.changes.edits = [e for e in prepared.changes.edits if e.owner in affected_shared]
-    related = set().union(*(prepared.changes.consumers.get(owner,frozenset()) for owner in affected_shared))
+    # Required consumers come from the committed checkpoint, not from a builder
+    # that may have failed before emitting its consumer map.
+    retained_consumers = {owner:set() for owner in affected_shared}
+    for resource in receipt.resources:
+        for owner in affected_shared & set(resource['owners']):
+            retained_consumers[owner].update(set(resource['owners']) & selection.features)
+    related = set().union(*retained_consumers.values())
+    emitted = {edit.owner for edit in prepared.changes.edits}
+    for owner, consumers in retained_consumers.items():
+        if consumers and owner not in emitted:
+            prepared.changes.findings.append(Finding(sorted(consumers)[0],None,'recomposition_unavailable','conflict',
+                'A retained shared resource could not be rebuilt; the previous selection and ownership are preserved.'))
     prepared.changes.findings = [f for f in prepared.changes.findings
                                 if f.feature in related or f.code in {'shell_conflict','hook_conflict'} and affected_shared]
     prepared.changes.ui = [s for s in receipt.pending_ui if s.feature not in owners]

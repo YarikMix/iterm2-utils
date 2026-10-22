@@ -1,7 +1,8 @@
 """Explicit transfer of narrowly recognized legacy resources; no installers run."""
 import shlex
+import json
 from pathlib import Path
-from .config import tomlfile, zshrc
+from .config import jsonfile, tomlfile, zshrc
 from .models import ChangeSet, FileEdit, Finding
 
 # Exact public wrapper body from the reference installer; comments are ignored.
@@ -78,6 +79,14 @@ def build(context, selection):
     changes = ChangeSet([],[],[])
     if not selection.adopt_legacy or 'codex' not in selection.agents:
         return changes
+    if 'restore' in selection.features:
+        try:
+            edit = _restore_hooks(context)
+            if edit is not None:
+                changes.edits.append(edit)
+        except (ValueError,OSError,TypeError,AttributeError):
+            changes.findings.append(Finding('restore','codex','legacy_restore_hook_conflict','conflict',
+                'Legacy restore hooks differ from the recognized source command/schema; review them manually before adoption.'))
     if 'status' in selection.features:
         path = context.paths.codex_home/'config.toml'
         before = path.read_bytes() if path.exists() else None
@@ -93,3 +102,46 @@ def build(context, selection):
         except (ValueError,AttributeError):
             changes.findings.append(Finding('status','codex','legacy_conflict','conflict','The exact legacy plugin enabled value cannot be safely changed.'))
     return changes
+
+
+def _restore_hooks(context):
+    """Transfer only the installer schema tied to a verified legacy source root."""
+    shell = context.paths.zshrc
+    block = zshrc.blocks(shell.read_bytes() if shell.exists() else b'').get('legacy-restore')
+    if block is None:
+        return None
+    if not _recognized('legacy-restore',block,context):
+        raise ValueError('Unknown legacy source')
+    old_root = Path(shlex.split(block)[1]).parent
+    command = shlex.quote(str(old_root/'codex-sessions'))+' hook'
+    expected = {'hooks':[{'type':'command','command':command,'timeout':3}]}
+    path = context.paths.codex_home/'hooks.json'
+    before = path.read_bytes() if path.exists() else None
+    document = jsonfile.parse(before or b'{}')
+    hooks = document.get('hooks',{})
+    if not isinstance(hooks,dict):
+        raise ValueError('Invalid hooks object')
+    changed = False
+    for event in ('SessionStart','UserPromptSubmit','Stop'):
+        entries = hooks.get(event,[])
+        if not isinstance(entries,list):
+            raise ValueError('Invalid hook event')
+        kept = []
+        for entry in entries:
+            if not isinstance(entry,dict) or not isinstance(entry.get('hooks'),list):
+                raise ValueError('Invalid hook group')
+            known_command = any(isinstance(handler,dict) and handler.get('command') == command
+                                for handler in entry['hooks'])
+            if known_command:
+                if entry != expected:
+                    raise ValueError('Changed legacy hook schema')
+                changed = True
+            else:
+                kept.append(entry)
+        if len(entries)-len(kept) > 1:
+            raise ValueError('Ambiguous legacy hooks')
+        if len(kept) != len(entries):
+            hooks[event] = kept
+    if not changed:
+        return None
+    return FileEdit(path,before,(json.dumps(document,ensure_ascii=False,indent=2)+'\n').encode(),0o600,'restore')

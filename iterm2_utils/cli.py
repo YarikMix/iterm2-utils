@@ -81,14 +81,19 @@ def main(argv=None):
             output = _outcome('install_preview' if args.dry_run else 'install',result)
             status = _exit(result.findings)
     else:
+        receipt_error = False
         try:
             receipt = state.load(paths.data/'receipt.json')
         except (ValueError,OSError):
             receipt = None
+            receipt_error = True
         agents = receipt.selection.agents if receipt else AGENTS
         context = discover(paths,runner,agents=agents)
         if args.command == 'doctor':
             findings = migration.inspect(context)
+            if receipt_error:
+                findings.append(Finding('selection',None,'ownership_unavailable','conflict',
+                    'The ownership receipt is unreadable or invalid; repair it before updating or uninstalling.'))
             if receipt:
                 findings += [Finding(s.feature,s.agent,s.code,'pending_ui',s.instruction) for s in receipt.pending_ui]
             if args.live:
