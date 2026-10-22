@@ -27,7 +27,7 @@ class CLI:
         if 'remove' in argv:self.value=None
         return subprocess.CompletedProcess(argv,0,'','')
     def mcp_probe(self,argv,*,timeout,env=None):
-        return {'tools':['list_sessions'],'sessions':True}
+        return {'tools':sorted(mcp.TOOLS),'sessions':True}
 
 
 class MCPTests(unittest.TestCase):
@@ -112,17 +112,17 @@ class MCPTests(unittest.TestCase):
         import sys
         from iterm2_utils.commands import Runner
         script=self.fixture.home/'server.py'
-        script.write_text("""import sys,json
+        script.write_text("tools="+repr(sorted(mcp.TOOLS))+"\n"+"""import sys,json
 for line in sys.stdin:
     request=json.loads(line)
     method=request['method']
     if method=='notifications/initialized':continue
     if method=='initialize':result={'protocolVersion':'2024-11-05','capabilities':{}}
-    elif method=='tools/list':result={'tools':[{'name':'list_sessions'}]}
+    elif method=='tools/list':result={'tools':[{'name':name} for name in tools]}
     else:result={'content':[{'type':'text','text':'{"windows": [], "buried_sessions": []}'}]}
     print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
 """)
-        self.assertEqual(Runner().mcp_probe([sys.executable,str(script)],timeout=2),{'tools':['list_sessions'],'sessions':True})
+        self.assertEqual(Runner().mcp_probe([sys.executable,str(script)],timeout=2),{'tools':sorted(mcp.TOOLS),'sessions':True})
 
     def test_probe_process_without_protocol_times_out(self):
         import sys
@@ -189,8 +189,8 @@ for line in sys.stdin:
         import sys
         from iterm2_utils.commands import Runner
         script=self.fixture.home/'bad-server.py'
-        for tool,content in [('list_sessions','unavailable: denied'),('execute','{}')]:
-            script.write_text("import sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if 'id' not in r:continue\n m=r['method']\n v={'protocolVersion':'2024-11-05','capabilities':{}} if m=='initialize' else {'tools':[{'name':"+repr(tool)+"}]} if m=='tools/list' else {'content':[{'type':'text','text':"+repr(content)+"}]}\n print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':v}),flush=True)\n")
+        for tools,content in [(sorted(mcp.TOOLS),'unavailable: denied'),(['execute'],'{}')]:
+            script.write_text("import sys,json\nfor line in sys.stdin:\n r=json.loads(line)\n if 'id' not in r:continue\n m=r['method']\n v={'protocolVersion':'2024-11-05','capabilities':{}} if m=='initialize' else {'tools':[{'name':name} for name in "+repr(tools)+"]} if m=='tools/list' else {'content':[{'type':'text','text':"+repr(content)+"}]}\n print(json.dumps({'jsonrpc':'2.0','id':r['id'],'result':v}),flush=True)\n")
             result=Runner().mcp_probe([sys.executable,str(script)],timeout=1)
             self.assertFalse(result['sessions'])
             self.assertNotIn('denied',repr(result))
@@ -218,3 +218,41 @@ elif 'remove' in args:path.unlink()
         self.assertFalse((self.fixture.home/'.codex').exists())
         mcp.apply(RegistrationEdit('codex',mcp.NAME,mcp.definition(),None,'mcp'),self.context,Runner())
         self.assertFalse((self.context.paths.codex_home/'registration.json').exists())
+
+    def test_adapter_rejects_incomplete_duplicate_or_unknown_inventory(self):
+        mcp.apply(self.build().edits[0],self.context,self.cli)
+        complete=sorted(mcp.TOOLS)
+        self.assertEqual(len(complete),13)
+        inventories=[['list_sessions'],complete[:-1],complete+[complete[0]],complete[:-1]+[complete[0]],complete+['execute']]
+        for inventory in inventories:
+            with self.subTest(inventory=inventory):
+                self.cli.mcp_probe=lambda *a,**k: {'tools':inventory,'sessions':True}
+                self.assertEqual(mcp.probe(self.context,self.cli,'codex').state,'unavailable')
+
+    def test_protocol_rejects_invalid_inventory_before_sessions_call(self):
+        import sys
+        from iterm2_utils.commands import Runner
+        complete=sorted(mcp.TOOLS)
+        self.assertEqual(len(complete),13)
+        script=self.fixture.home/'inventory-server.py'
+        marker=self.fixture.home/'sessions-called'
+        inventories=[['list_sessions'],complete[:-1],complete+[complete[0]],complete[:-1]+[complete[0]],complete+['execute']]
+        for inventory in inventories:
+            with self.subTest(inventory=inventory):
+                marker.unlink(missing_ok=True)
+                script.write_text('tools='+repr(inventory)+'\nmarker='+repr(str(marker))+'\n'+"""import sys,json
+from pathlib import Path
+for line in sys.stdin:
+ request=json.loads(line)
+ method=request['method']
+ if method=='notifications/initialized':continue
+ if method=='initialize':result={'protocolVersion':'2024-11-05','capabilities':{}}
+ elif method=='tools/list':result={'tools':[{'name':name} for name in tools]}
+ else:
+  Path(marker).write_text('called')
+  result={'content':[{'type':'text','text':'{"windows": [], "buried_sessions": []}'}]}
+ print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}),flush=True)
+""")
+                result=Runner().mcp_probe([sys.executable,str(script)],timeout=2)
+                self.assertFalse(result['sessions'])
+                self.assertFalse(marker.exists())

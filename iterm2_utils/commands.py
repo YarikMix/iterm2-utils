@@ -64,7 +64,7 @@ class Runner:
                 raise ValueError('Incomplete MCP tool inventory')
             names = [tool['name'] for tool in tools]
             from .config.mcp import TOOLS
-            if not names or not set(names) <= TOOLS or 'list_sessions' not in names:
+            if len(names) != 13 or set(names) != TOOLS:
                 return {'tools': names, 'sessions':False}
             send({'id':3,'method':'tools/call','params':{'name':'list_sessions','arguments':{}}})
             result = response(3)

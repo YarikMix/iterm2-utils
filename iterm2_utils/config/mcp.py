@@ -115,7 +115,7 @@ def probe(context, runner, agent):
         env['HOME']=str(context.paths.home)
         value=runner.mcp_probe([str(context.executables['uvx']),*ARGS],timeout=10,env=env)
         tools=value['tools']
-        ready=(bool(tools) and set(tools)<=TOOLS and 'list_sessions' in tools and value['sessions'] is True)
+        ready=(len(tools) == 13 and set(tools) == TOOLS and value['sessions'] is True)
     except (OSError,ValueError,KeyError,TypeError,AttributeError,subprocess.SubprocessError):
         pass
     return Finding('mcp',agent,'mcp_connection','ready' if ready else 'unavailable',
