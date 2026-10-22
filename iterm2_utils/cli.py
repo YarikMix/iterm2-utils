@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict
 
 from .commands import Runner
-from .discovery import discover, resolve_paths
+from .discovery import discover, resolve_paths, live_status
 from .models import Selection, Finding
 from . import engine, state
 from .planner import AGENTS, FEATURES, SHORTCUTS, plan
@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest='command', required=True)
     doctor = sub.add_parser('doctor', help='Inspect dependencies without changing settings')
     doctor.add_argument('--json', action='store_true')
+    doctor.add_argument('--live', action='store_true')
     preview = sub.add_parser('plan', help='Preview an explicit feature selection; writes nothing')
     preview.add_argument('--agent', choices=['codex', 'claude', 'both'], required=True)
     preview.add_argument('--features', required=True, help=', '.join(sorted(FEATURES)))
@@ -97,13 +98,21 @@ def main(argv: list[str] | None = None) -> int:
                   'features': sorted(FEATURES), 'python_api': 'not_verified',
                   'runtime_connection': 'not_verified'}
         status = 0 if 'iterm2' in context.executables else 2
+        if args.live:
+            findings=live_status(context,Runner())
+            output['findings']=[asdict(f) for f in findings]
+            output['python_api']='ready' if any(f.code=='status_api' and f.state=='ready' for f in findings) else 'pending_ui'
+            output['runtime_connection']=output['python_api']
+            status=_exit(findings)
     if args.json:
         print(json.dumps(output, sort_keys=True))
     else:
         print(output['mode'].replace('_', ' ').capitalize() + '.')
         if args.command == 'doctor':
             print('Detected: ' + ', '.join(output['executables']))
-            print('Python API and live runtime connection: not verified.')
+            print('Python API and live runtime connection: '+output['python_api']+'.')
+            for finding in output.get('findings',[]):
+                print(f"{finding['feature']}: {finding['state']}: {finding['message']}")
             print('Available features: ' + ', '.join(sorted(FEATURES)))
         else:
             for finding in output['findings']:

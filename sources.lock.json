@@ -16,6 +16,42 @@
       "sha256": "990f1da86e9f58355fc82b5cd486b70aaeb53ae0ba9722424a0270ff0d458de9",
       "license": "GPL-2.0",
       "blob": "a8613c7ec4d6bc4bbde06b8178aada340803abd3"
+    },
+    {
+      "path": "vendor/codex_status/status.py",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/scripts/status.py",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "fdb564845ecde4812e73f3a2cc3ba9e74c50a8c20c64a1463df5a8b2bb1ab8b8",
+      "upstream_sha256": "b1f494d55afdc7a0e053d73c093c8a4bb38c57bdce1a8b70504c8201251e91c2",
+      "license": "MIT",
+      "transformation": "Owned-runtime adapter; external plugin settings/notifications removed; explicit-session transport isolated; canonical opaque tool identity computed before normalization"
+    },
+    {
+      "path": "vendor/codex_status/iterm_support.py",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/scripts/iterm_support.py",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "c839cb7fbd017c0673162488b80344fa7b19256aea49690876c68845eeacec2d",
+      "upstream_sha256": "b314b66711d1b4d977b386007db83093f55dcc7cf3690fa21502f806e9331789",
+      "license": "MIT",
+      "transformation": "Owned-runtime adapter; external plugin settings/notifications removed; explicit-session transport isolated; canonical opaque tool identity computed before normalization"
+    },
+    {
+      "path": "vendor/codex_status/LICENSE",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/LICENSE",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "be94c341a8b712d070af0e5def1c026c15cc41593662223879510b33af237fdf",
+      "upstream_sha256": "be94c341a8b712d070af0e5def1c026c15cc41593662223879510b33af237fdf",
+      "license": "MIT",
+      "transformation": "none"
+    },
+    {
+      "path": "tests/test_status_upstream.py",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/tests/test_status.py",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "a54b3005f8c98f7df5c9dac8aafa8e0be0f0e0c854dcdf70f33dc546b555d6ed",
+      "upstream_sha256": "a5bbdd7868bfd8389711cce099849b0490b2ffcef660c1c159db0eef9c69db8e",
+      "license": "MIT",
+      "transformation": "Lifecycle behavioral vectors unchanged; import harness and scope adapted"
     }
   ]
 }

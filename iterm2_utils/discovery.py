@@ -91,10 +91,12 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
     if app:
         executables['iterm2'] = app
         versions['iterm2'] = _version(str(info.get('CFBundleShortVersionString', '')))
-        it2 = app / 'Contents/Resources/it2'
+        it2 = app / 'Contents/Resources/utilities/it2'
+        if not it2.is_file():
+            it2 = app / 'Contents/Resources/it2'
         if it2.is_file() and os.access(it2, os.X_OK):
             output = _probe(runner, it2, ['--help'])
-            if 'session-status' in output:
+            if 'set-status' in output or 'session-status' in output:
                 capabilities.add('iterm2:session-status')
             if output:
                 executables['it2'] = it2
@@ -120,6 +122,63 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
                         profiles[profile['Name']] = profile
             except (OSError, ValueError, AttributeError, TypeError):
                 continue
-    # Existing installation ownership is established by later receipt handling.
-    # Agent configs (especially third-party MCP env/auth blocks) are not read.
-    return Context(paths, executables, versions, frozenset(capabilities), profiles, {}, preferences)
+    # External integration readiness is allowlisted; ownership remains in receipts.
+    # Foreign env/MCP/auth values are never retained in Context or diagnostics.
+    return Context(paths, executables, versions, frozenset(capabilities), profiles, status_installations(paths, app), preferences)
+
+
+def status_installations(paths: Paths, app: Path | None = None) -> dict:
+    """Return booleans only; never expose foreign hooks/env/settings bodies."""
+    import shlex
+    installed={}
+    try:
+        import tomllib
+        config=tomllib.loads((paths.codex_home/'config.toml').read_text())
+        plugins=config.get('plugins',{})
+        # Official plugin key is package@marketplace; exact known package name.
+        enabled=any(key.split('@',1)[0] in {'iterm2-status','codex-iterm2-status'} and
+                    isinstance(value,dict) and value.get('enabled') is True
+                    for key,value in plugins.items())
+        if enabled:installed['codex-status']={'enabled':True}
+    except (OSError,ValueError,TypeError,AttributeError):
+        pass
+    try:
+        document=json.loads(paths.claude_settings.read_text())
+        expected={str(paths.home/'.config/iterm2/cc-status')}
+        if app:expected.add(str(app/'Contents/Resources/utilities/cc-status'))
+        for entries in document.get('hooks',{}).values():
+            for entry in entries:
+                for hook in entry.get('hooks',[]):
+                    if hook.get('type')=='command':
+                        tokens=shlex.split(hook.get('command',''))
+                        if tokens and tokens[0] in expected:
+                            installed['claude-status']={'enabled':True}
+    except (OSError,ValueError,TypeError,AttributeError):
+        pass
+    return installed
+
+
+def live_status(context: Context, runner: Runner) -> list:
+    """Bounded read-only explicit-session API probe; payload never serialized."""
+    from .models import Finding
+    from runtime.events import terminal_id
+    findings=[]
+    if 'iterm2:session-status' not in context.capabilities:
+        findings.append(Finding('status','codex','status_capability','unavailable','iTerm2 session status capability is unavailable.'))
+        return findings
+    terminal=terminal_id(os.environ.get('ITERM_SESSION_ID',''))
+    ready=False
+    if terminal and context.executables.get('it2'):
+        try:
+            result=runner.run([str(context.executables['it2']),'session','get-status','--session',terminal],timeout=2)
+            value=json.loads(result.stdout)
+            ready=result.returncode==0 and isinstance(value,dict) and value.get('status') in {'','idle','working','waiting'}
+        except (OSError,ValueError,subprocess.SubprocessError):
+            pass
+    findings.append(Finding('status',None,'status_api','ready' if ready else 'pending_ui',
+                            'Explicit-session API is reachable.' if ready else 'Enable Python API and authorize it2, then run doctor --live from an iTerm2 session.'))
+    if context.installed.get('claude-status',{}).get('enabled'):
+        findings.append(Finding('status','claude','native_status','ready','Native cc-status hook detected.'))
+    else:
+        findings.append(Finding('status','claude','native_status','pending_ui','Use iTerm2 > Install/Reinstall Claude Code Integration; select only API, hooks and Session Status.'))
+    return findings
