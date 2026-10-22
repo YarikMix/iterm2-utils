@@ -73,4 +73,12 @@ def plan(context: Context, selection: Selection) -> Plan:
                'adopt_legacy': selected.adopt_legacy, 'versions': context.versions,
                'capabilities': sorted(context.capabilities)}
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-    return Plan(selected, ChangeSet([], ui, findings), fingerprint)
+    changes = ChangeSet([], ui, findings)
+    if not any(f.state in {'conflict', 'missing_dependency'} for f in findings):
+        from .features.profiles import build
+        built = build(context, selected)
+        changes.edits.extend(built.edits)
+        changes.ui.extend(built.ui)
+        changes.findings.extend(built.findings)
+        changes.consumers.update(built.consumers)
+    return Plan(selected, changes, fingerprint)

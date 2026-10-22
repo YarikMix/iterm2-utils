@@ -41,3 +41,25 @@ class DiscoveryTests(unittest.TestCase):
             f.runner.run = fail
             context = discover(resolve_paths(), f.runner)
             self.assertNotIn('UNRELATED_SECRET_MARKER', repr(context))
+
+    def test_preferences_snapshot_is_allowlisted_and_native_profiles_discovered(self):
+        import plistlib
+        with Fixture() as f:
+            f.runner.responses['defaults']=plistlib.dumps({'CopySelection':True,'PreventApplicationInitiatedProfileChanges':False,'PRIVATE_MARKER':'do not retain','New Bookmarks':[{'Name':'Default','Guid':'native'}]}).decode()
+            context=discover(resolve_paths(),f.runner)
+            self.assertEqual(context.preferences,{'com.googlecode.iterm2':{'CopySelection':True}})
+            self.assertEqual(context.profiles['Default']['Guid'],'native')
+            self.assertNotIn('PRIVATE_MARKER',repr(context))
+
+    def test_alt_enter_documented_claude_and_unknown_version_fail_closed(self):
+        with Fixture() as f:
+            self.assertIn('claude:alt-enter',discover(resolve_paths(),f.runner).capabilities)
+            f.runner.responses['claude']='version unavailable'
+            self.assertNotIn('claude:alt-enter',discover(resolve_paths(),f.runner).capabilities)
+
+    def test_codex_alt_enter_only_source_verified_version(self):
+        with Fixture() as f:
+            f.runner.responses['codex']='codex-cli 0.163.0 --no-daemon'
+            self.assertIn('codex:alt-enter',discover(resolve_paths(),f.runner).capabilities)
+            f.runner.responses['codex']='codex-cli 0.164.0 --no-daemon'
+            self.assertNotIn('codex:alt-enter',discover(resolve_paths(),f.runner).capabilities)

@@ -76,8 +76,17 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
             continue
         executables[name] = binary
         versions[name] = _version(output)
-        if name == 'codex' and '--no-daemon' in _probe(runner, binary, ['--help']):
-            capabilities.add('codex:no-daemon')
+        # Current Claude documentation lists Option+Enter for multiline input.
+        # No historical minimum is published; unknown versions fail closed.
+        if name == 'claude' and versions[name] != 'unknown':
+            capabilities.add('claude:alt-enter')
+        if name == 'codex':
+            help_output = _probe(runner, binary, ['--help'])
+            if '--no-daemon' in help_output:
+                capabilities.add('codex:no-daemon')
+            # Verified default keymap in rust-v0.163.0; no historical/future floor.
+            if versions[name] == '0.163.0':
+                capabilities.add('codex:alt-enter')
     app, info = _iterm(paths)
     if app:
         executables['iterm2'] = app
@@ -89,7 +98,19 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
                 capabilities.add('iterm2:session-status')
             if output:
                 executables['it2'] = it2
+    preferences = {}
     profiles = {}
+    if app:
+        try:
+            result = runner.run(['defaults', 'export', 'com.googlecode.iterm2', '-'], timeout=5)
+            values = plistlib.loads(result.stdout.encode()) if result.returncode == 0 else {}
+            allowed = {key: values[key] for key in ('CopySelection',) if key in values and isinstance(values[key], bool)}
+            preferences['com.googlecode.iterm2'] = allowed
+            for profile in values.get('New Bookmarks', []):
+                if isinstance(profile, dict) and isinstance(profile.get('Name'), str):
+                    profiles[profile['Name']] = profile
+        except (OSError, ValueError, TypeError, AttributeError, plistlib.InvalidFileException, subprocess.SubprocessError):
+            pass
     if paths.profiles.is_dir():
         for path in sorted(paths.profiles.glob('*.json')):
             try:
@@ -101,4 +122,4 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
                 continue
     # Existing installation ownership is established by later receipt handling.
     # Agent configs (especially third-party MCP env/auth blocks) are not read.
-    return Context(paths, executables, versions, frozenset(capabilities), profiles, {})
+    return Context(paths, executables, versions, frozenset(capabilities), profiles, {}, preferences)

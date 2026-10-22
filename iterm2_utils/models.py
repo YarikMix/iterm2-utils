@@ -42,6 +42,7 @@ class Context:
     capabilities: frozenset[str]
     profiles: dict[str, dict]
     installed: dict[str, dict]
+    preferences: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 @dataclass
