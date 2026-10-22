@@ -7,6 +7,10 @@ import subprocess
 import sys
 import time
 
+class HookBudgetExpired(BaseException):
+    """Overall deadline must bypass ordinary per-handler error isolation."""
+
+
 class Runner:
     def run(self,argv,*,timeout,stdin=None):
         return subprocess.run(argv,input=stdin,text=True,capture_output=True,timeout=timeout,check=False)
@@ -69,7 +73,7 @@ def dispatch(event, settings: dict, runner: Runner) -> None:
 def main(argv: list[str]) -> int:
     # OS-level budget also bounds slow stdin/settings reads and lock contention.
     def expired(*_):
-        raise TimeoutError('hook budget')
+        raise HookBudgetExpired('hook budget')
     old=None
     try:
         old=signal.signal(signal.SIGALRM,expired)
@@ -85,7 +89,7 @@ def main(argv: list[str]) -> int:
         event=normalize(raw,args.get('--agent','codex'),os.environ.get('ITERM_SESSION_ID'))
         if event:
             dispatch(event,settings,Runner())
-    except Exception:
+    except (Exception, HookBudgetExpired):
         pass
     finally:
         if old is not None:

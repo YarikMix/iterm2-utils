@@ -95,3 +95,23 @@ class RuntimeTests(unittest.TestCase):
             settings=root/'settings.json';settings.write_text('{"status": true}')
             result=subprocess.run([sys.executable,str(root/'hook.py'),'--settings',str(settings)],input='{}',capture_output=True,text=True,env={},timeout=3)
             self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
+    def test_overall_budget_bypasses_combined_handler_isolation(self):
+        import shutil
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            for name in ('hook.py','events.py'):
+                shutil.copy(Path(hook.__file__).parent/name,root/name)
+            shutil.copytree(Path(hook.__file__).resolve().parents[1]/'vendor',root/'vendor',ignore=shutil.ignore_patterns('__pycache__'))
+            restore=root/'codex_restore';restore.mkdir()
+            settings=root/'settings.json'
+            settings.write_text(json.dumps({'notifications':True,'restore':True,'status':False}))
+            # Expiry in either handler must escape local ordinary-error isolation.
+            for notification_delay,restore_delay in ((9,0.6),(0.6,9)):
+                with self.subTest(notification_delay=notification_delay):
+                    (root/'notifications.py').write_text('import time\ndef handle(*args):\n    time.sleep('+str(notification_delay)+')\n')
+                    (restore/'registry.py').write_text('import time\ndef handle(*args):\n    time.sleep('+str(restore_delay)+')\n')
+                    start=time.monotonic()
+                    result=subprocess.run([sys.executable,str(root/'hook.py'),'--settings',str(settings)],input=json.dumps({'session_id':'s','hook_event_name':'Stop'}),env={'ITERM_SESSION_ID':UUID},capture_output=True,text=True,cwd=root,timeout=4)
+                    elapsed=time.monotonic()-start
+                    self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
+                    self.assertLess(elapsed,3)
