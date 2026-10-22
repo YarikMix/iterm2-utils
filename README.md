@@ -82,9 +82,10 @@ finding when compatibility for the detected agent version is unverified.
 
 Current Claude documentation describes Option+Enter after enabling Option as
 Meta on macOS: https://code.claude.com/docs/en/interactive-mode. The profile sends
-the equivalent ESC+CR bytes directly. No historical minimum version is published;
-a detected Claude version is treated as documentation-supported, with live
-behavior still unverified. Unknown versions fail closed.
+the equivalent ESC+CR bytes directly. The current documented release is exactly Claude Code 2.1.308
+([release](https://github.com/anthropics/claude-code/releases/tag/v2.1.308),
+published 2026-10-22). Only that exact version is treated as documentation-supported;
+older, future and unknown versions fail closed. Live behavior remains unverified.
 
 The profile-level `Prevent Automatic Profile Switching` flag is checked using
 iTerm2 v3.7.6 source naming. A per-session override is not a global defaults key;

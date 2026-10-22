@@ -51,11 +51,14 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(context.profiles['Default']['Guid'],'native')
             self.assertNotIn('PRIVATE_MARKER',repr(context))
 
-    def test_alt_enter_documented_claude_and_unknown_version_fail_closed(self):
+    def test_claude_alt_enter_only_current_documented_exact_release(self):
         with Fixture() as f:
+            f.runner.responses['claude']='2.1.308 (Claude Code)'
             self.assertIn('claude:alt-enter',discover(resolve_paths(),f.runner).capabilities)
-            f.runner.responses['claude']='version unavailable'
-            self.assertNotIn('claude:alt-enter',discover(resolve_paths(),f.runner).capabilities)
+            for output in ('0.1 (Claude Code)', '2.1.309 (Claude Code)', '99.0.0 (Claude Code)', 'version unavailable'):
+                with self.subTest(output=output):
+                    f.runner.responses['claude']=output
+                    self.assertNotIn('claude:alt-enter',discover(resolve_paths(),f.runner).capabilities)
 
     def test_codex_alt_enter_only_source_verified_version(self):
         with Fixture() as f:

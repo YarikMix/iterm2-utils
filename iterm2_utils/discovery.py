@@ -76,9 +76,9 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
             continue
         executables[name] = binary
         versions[name] = _version(output)
-        # Current Claude documentation lists Option+Enter for multiline input.
-        # No historical minimum is published; unknown versions fail closed.
-        if name == 'claude' and versions[name] != 'unknown':
+        # Current official docs + release v2.1.308 (2026-10-22) document
+        # Option+Enter. No support is inferred for older/future releases.
+        if name == 'claude' and versions[name] == '2.1.308':
             capabilities.add('claude:alt-enter')
         if name == 'codex':
             help_output = _probe(runner, binary, ['--help'])
