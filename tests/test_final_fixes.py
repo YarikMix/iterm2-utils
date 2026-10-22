@@ -317,3 +317,56 @@ class FinalFixTests(WorkflowFixture):
         legacy=self.context.paths.home/'legacy.zsh';legacy.write_text(original)
         import shlex
         self.assertTrue(migration._recognized('legacy-restore','source '+shlex.quote(str(legacy)),self.context))
+
+    def test_n1_additive_shortcuts_preserve_retained_profile_checkpoint(self):
+        self.assertSuccess(self.install('shortcuts',shortcuts=('alt-enter',)))
+        profile=self.context.paths.profiles/'iterm2-utils.json'
+        before_bytes=profile.read_bytes()
+        before_receipt=state.load(self.context.paths.data/'receipt.json')
+        self.context.capabilities -= {'codex:alt-enter'}
+        result=self.setup_cli(['install','--agent','claude','--features','shortcuts','--shortcuts','resume'])
+        self.assertEqual(result['exit_code'],2,result)
+        self.assertTrue(any(f['code']=='shortcut_capability' and f['agent']=='codex' for f in result['report']['findings']))
+        self.assertEqual(profile.read_bytes(),before_bytes)
+        self.assertEqual(state.load(self.context.paths.data/'receipt.json'),before_receipt)
+
+    def test_n1_update_preserves_whole_shared_profile_checkpoint(self):
+        self.assertSuccess(self.install('shortcuts',shortcuts=('alt-enter',)))
+        self.assertSuccess(self.install('shortcuts',agents=('claude',),shortcuts=('resume',)))
+        profile=self.context.paths.profiles/'iterm2-utils.json'
+        before_bytes=profile.read_bytes()
+        before_receipt=state.load(self.context.paths.data/'receipt.json')
+        self.context.capabilities -= {'codex:alt-enter'}
+        result=lifecycle.update(self.context,self.runner)
+        self.assertTrue(any(f.code=='shortcut_capability' and f.agent=='codex' for f in result.findings),result.findings)
+        self.assertFalse(any(f.code=='feature_checkpoint' for f in result.findings),result.findings)
+        self.assertEqual(profile.read_bytes(),before_bytes)
+        self.assertEqual(result.receipt,before_receipt)
+        self.assertEqual(state.load(self.context.paths.data/'receipt.json'),before_receipt)
+
+    def test_n1_blocked_shared_profile_keeps_independent_shell_install(self):
+        self.assertSuccess(self.install('shortcuts',shortcuts=('alt-enter',)))
+        profile=self.context.paths.profiles/'iterm2-utils.json'
+        before_bytes=profile.read_bytes()
+        before=state.load(self.context.paths.data/'receipt.json')
+        resources=[r for r in before.resources if r['target']==str(profile.resolve())]
+        self.context.capabilities -= {'codex:alt-enter'}
+        result=self.install('shell','shortcuts',agents=('claude',),shortcuts=('resume',))
+        self.assertTrue(any(f.code=='shortcut_capability' and f.agent=='codex' for f in result.findings),result.findings)
+        self.assertEqual(result.receipt.selection.features_for('claude'),{'shell'})
+        self.assertEqual(result.receipt.selection.shortcuts_for('codex'),{'alt-enter'})
+        self.assertEqual(profile.read_bytes(),before_bytes)
+        self.assertEqual([r for r in result.receipt.resources if r['target']==str(profile.resolve())],resources)
+        self.assertIn('iterm2_shell_integration.zsh',self.context.paths.zshrc.read_text())
+
+    def test_n1_early_profile_builder_failure_preserves_checkpoint(self):
+        self.assertSuccess(self.install('shortcuts',shortcuts=('alt-enter',)))
+        profile=self.context.paths.profiles/'iterm2-utils.json'
+        before_bytes=profile.read_bytes()
+        before_receipt=state.load(self.context.paths.data/'receipt.json')
+        self.context.profiles['Default']['Keyboard Map']['0xd-0x20000-0x24-0x1']={'Action':1,'Text':'foreign'}
+        result=self.install('shortcuts',agents=('claude',),shortcuts=('resume',))
+        self.assertTrue(any(f.code=='binding_conflict' and f.agent=='codex' for f in result.findings),result.findings)
+        self.assertEqual(profile.read_bytes(),before_bytes)
+        self.assertEqual(result.receipt,before_receipt)
+        self.assertEqual(state.load(self.context.paths.data/'receipt.json'),before_receipt)

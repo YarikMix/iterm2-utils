@@ -100,10 +100,22 @@ def install(context, selection, runner, *, dry_run=False):
         shared_codes = {'shell_conflict','hook_conflict','no_daemon'} if feature in {'status','notifications','restore'} else set()
         if feature in {'clipboard','shortcuts'}:
             shared_codes |= {'missing_parent','invalid_parent_keyboard_map','prevent_aps','competing_aps','binding_conflict','profile_conflict'}
+        # One profile edit replaces both agents' profiles. Keep blockers for
+        # every retained consumer, even if a failed builder emitted no consumers.
+        # Non-profile checkpoints never rewrite this document and stay independent.
+        profile_blockers = []
+        if feature in {'clipboard','shortcuts'}:
+            profile_consumers = {p for p in working.selection.pairs
+                                 if p.split(':',1)[1] in {'clipboard','shortcuts'}}
+            profile_consumers |= set(prepared.changes.consumers.get('shared:agent-profiles', ()))
+            profile_blockers = [f for f in prepared.changes.findings if f.state in BLOCKING
+                and any(p.endswith(':'+f.feature) and (f.agent is None or p.startswith(f.agent+':'))
+                        for p in profile_consumers)]
         prepared.changes.findings = [f for f in prepared.changes.findings
             if (f.feature in (active | {'selection'}) or f.code in shared_codes)
             and f.agent in {None, agent}
             and not (f.code=='codex_only' and 'codex' in selection.agents)]
+        prepared.changes.findings.extend(f for f in profile_blockers if f not in prepared.changes.findings)
         prepared.changes.edits = [edit for edit in prepared.changes.edits
             if edit.owner in active_pairs or active_pairs & set(prepared.changes.consumers.get(edit.owner,()))]
         prepared.changes.ui = [step for step in prepared.changes.ui if step.feature in active and step.agent in {None, agent}]
