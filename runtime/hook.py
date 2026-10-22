@@ -24,7 +24,10 @@ def dispatch(event, settings: dict, runner: Runner) -> None:
     # Independent, optional handlers are registered by their feature modules.
     if settings.get('notifications'):
         try:
-            from notifications import handle
+            try:
+                from notifier import handle
+            except ImportError:
+                from .notifier import handle
             handle(event,settings,runner)
         except Exception:
             pass

@@ -31,7 +31,7 @@ class RuntimeTests(unittest.TestCase):
             self.assertEqual(runner.calls[-1][0][runner.calls[-1][0].index('--status')+1],'working')
     def test_notifications_only_does_not_call_set_status(self):
         runner=FakeRunner()
-        hook.dispatch(self.event('Stop'),{'status':False,'notifications':False,'restore':False},runner)
+        hook.dispatch(self.event('Stop'),{'status':False,'notifications':True,'restore':False},runner)
         self.assertEqual(runner.calls,[])
     def test_all_hook_failures_return_empty_json_zero(self):
         for payload in ('bad','null','[]','{}'):
@@ -108,7 +108,7 @@ class RuntimeTests(unittest.TestCase):
             # Expiry in either handler must escape local ordinary-error isolation.
             for notification_delay,restore_delay in ((9,0.6),(0.6,9)):
                 with self.subTest(notification_delay=notification_delay):
-                    (root/'notifications.py').write_text('import time\ndef handle(*args):\n    time.sleep('+str(notification_delay)+')\n')
+                    (root/'notifier.py').write_text('import time\ndef handle(*args):\n    time.sleep('+str(notification_delay)+')\n')
                     (restore/'registry.py').write_text('import time\ndef handle(*args):\n    time.sleep('+str(restore_delay)+')\n')
                     start=time.monotonic()
                     result=subprocess.run([sys.executable,str(root/'hook.py'),'--settings',str(settings)],input=json.dumps({'session_id':'s','hook_event_name':'Stop'}),env={'ITERM_SESSION_ID':UUID},capture_output=True,text=True,cwd=root,timeout=4)

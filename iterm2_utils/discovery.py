@@ -87,6 +87,10 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
             # Verified default keymap in rust-v0.163.0; no historical/future floor.
             if versions[name] == '0.163.0':
                 capabilities.add('codex:alt-enter')
+                capabilities.add('codex:approval-notifications')
+    osascript = shutil.which('osascript')
+    if osascript:
+        executables['osascript'] = Path(osascript).absolute()
     app, info = _iterm(paths)
     if app:
         executables['iterm2'] = app

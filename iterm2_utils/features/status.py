@@ -60,6 +60,9 @@ def build(context, selection):
             raise ValueError('settings object')
         settings.update({feature:feature in selected for feature in ('status','notifications','restore')})
         settings.update(it2=str(context.executables.get('it2','')),cache=str(context.paths.cache/'status'))
+        if 'notifications' in selected:
+            from .notifications import runtime_settings
+            settings.update(runtime_settings(context))
         changes.edits.extend([FileEdit(hooks_path,before,after,0o600,owner),FileEdit(settings_path,previous,(json.dumps(settings,sort_keys=True,indent=2)+'\n').encode(),0o600,owner)])
         changes.consumers[owner]=frozenset(selected)
     except (ValueError,TypeError,AttributeError):

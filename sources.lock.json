@@ -52,6 +52,24 @@
       "upstream_sha256": "a5bbdd7868bfd8389711cce099849b0490b2ffcef660c1c159db0eef9c69db8e",
       "license": "MIT",
       "transformation": "Lifecycle behavioral vectors unchanged; import harness and scope adapted"
+    },
+    {
+      "path": "runtime/notifier.py",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/scripts/notifications.py",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "470ae8c862ce93cfea7e9b67c46983e6aed31ce500065fff6d66621896fd141b",
+      "local_snapshot_sha256": "ec1f120f88e81c3b9fa33048d0ca022103c8f7437ee8a4d7368948c908ab39c5",
+      "license": "MIT",
+      "transformation": "Adapter informed by newer installed local snapshot (public SHA unavailable): retain removed PermissionRequest banners, independent Claude mapping, exact UUID focus and bounded observational delivery"
+    },
+    {
+      "path": "runtime/focus.py",
+      "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/scripts/focus.py",
+      "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
+      "sha256": "58bb4fc49ca79c5a7a5b83a8134cc640ceb2fe0f0b2490b0e2bbda1f6c458167",
+      "local_snapshot_sha256": "d930eac328f7bfd1f954c309125c445d3958c91ff02453bdc8948cfc75841a6e",
+      "license": "MIT",
+      "transformation": "Adapter informed by newer installed local snapshot (public SHA unavailable): retain removed PermissionRequest banners, independent Claude mapping, exact UUID focus and bounded observational delivery"
     }
   ]
 }

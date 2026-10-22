@@ -27,3 +27,12 @@ external notification configuration and upstream process harness are not bundled
 These adapted modules are **not byte-identical** upstream copies. In
 `sources.lock.json`, `upstream_sha256` identifies original downloaded content and
 `sha256` identifies the final bundled bytes; `transformation` describes the patch.
+
+`runtime/notifier.py` and `runtime/focus.py` adapt notification-state, foreground
+lookup and exact-session focus patterns from the same MIT project. Their mapping
+was reconciled against a newer installed local snapshot with no public SHA:
+PermissionRequest banners had deliberately been removed because they precede
+auto-review. `local_snapshot_sha256` records those inspected source bytes, while
+`sha256` records this package's adapted module bytes; the public ref identifies
+the available base, not the newer local snapshot. Claude hooks are a new adapter
+based on the official Anthropic hooks and Python SDK schemas.
