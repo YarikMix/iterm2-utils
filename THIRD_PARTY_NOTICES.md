@@ -36,3 +36,17 @@ auto-review. `local_snapshot_sha256` records those inspected source bytes, while
 `sha256` records this package's adapted module bytes; the public ref identifies
 the available base, not the newer local snapshot. Claude hooks are a new adapter
 based on the official Anthropic hooks and Python SDK schemas.
+
+`runtime/codex_restore/` and `tests/restore/` bundle only the codex-resume
+module from agent-utils, subtree commit
+`15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9`, author y.mihalev.
+The standalone installer and its test are excluded; common feature builders
+replace installation. Source did not include a separate license declaration
+in this subtree; no license is inferred from other private repository files.
+The source runtime contracts, lifecycle timeouts and behavioral vectors are
+preserved. Test imports/entry paths are relocated; iTerm process identification
+accepts the selected installed app path. An uncertain tab-create result now
+retains its reservation and asks for inspection, preventing automatic retries.
+The local metadata bridge forwards only session_id, cwd, transcript_path and
+hook_event_name transiently; it never persists hook content. Per-file original
+and bundled SHA-256 digests are recorded in sources.lock.json.

@@ -16,7 +16,7 @@ class Runner:
         return subprocess.run(argv,input=stdin,text=True,capture_output=True,timeout=timeout,check=False)
 
 
-def dispatch(event, settings: dict, runner: Runner) -> None:
+def dispatch(event, settings: dict, runner: Runner, *, restore_metadata=None) -> None:
     from vendor.codex_status import status
     from vendor.codex_status.iterm_support import status_command
     if not status.terminal_id(event.terminal_uuid):
@@ -33,8 +33,11 @@ def dispatch(event, settings: dict, runner: Runner) -> None:
             pass
     if settings.get('restore') and event.agent == 'codex':
         try:
-            from codex_restore.registry import handle
-            handle(event,settings,runner)
+            try:
+                from codex_restore.registry import handle
+            except ImportError:
+                from .codex_restore.registry import handle
+            handle(event,settings,runner,restore_metadata)
         except Exception:
             pass
     if not settings.get('status') or event.agent != 'codex' or not settings.get('it2') or not settings.get('cache'):
@@ -91,7 +94,7 @@ def main(argv: list[str]) -> int:
         raw=json.loads(sys.stdin.read(2*1024*1024))
         event=normalize(raw,args.get('--agent','codex'),os.environ.get('ITERM_SESSION_ID'))
         if event:
-            dispatch(event,settings,Runner())
+            dispatch(event,settings,Runner(),restore_metadata={key:raw[key] for key in ("session_id","cwd","transcript_path","hook_event_name") if key in raw})
     except (Exception, HookBudgetExpired):
         pass
     finally:

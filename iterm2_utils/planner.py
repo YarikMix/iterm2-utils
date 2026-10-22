@@ -65,6 +65,8 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
 
 def plan(context: Context, selection: Selection) -> Plan:
     findings = validate(selection, context)
+    from .features import restore
+    findings.extend(restore.build(context,selection).findings)
     supported = selection.features - CODEX_ONLY if 'codex' not in selection.agents else selection.features
     selected = replace(selection, features=frozenset(supported))
     ui = [UiStep(f.code, f.feature, f.agent, f.message) for f in findings if f.state == 'pending_ui']
@@ -76,7 +78,7 @@ def plan(context: Context, selection: Selection) -> Plan:
     changes = ChangeSet([], ui, findings)
     if not any(f.state in {'conflict', 'missing_dependency'} for f in findings):
         from .features.profiles import build
-        from .features import shell, status, notifications
+        from .features import shell, status, notifications, restore
         for builder in (build, shell.runtime_payload, shell.build, status.build, notifications.build):
             built = builder(context, selected)
             changes.edits.extend(built.edits)

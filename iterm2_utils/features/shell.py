@@ -46,7 +46,7 @@ def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
                 raise ValueError('Runtime source symlinks are not allowed')
             if not source.is_file() or '__pycache__' in source.parts:
                 continue
-            if source.suffix not in {'.py', '.zsh'} and source.name not in {'LICENSE', 'NOTICE'}:
+            if source.suffix not in {'.py', '.zsh'} and source.name not in {'LICENSE', 'NOTICE', 'codex-sessions'}:
                 continue
             relative = source.relative_to(root)
             target = relative if tree == 'runtime' else Path('vendor') / relative
@@ -64,7 +64,7 @@ def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
         before = path.read_bytes() if path.exists() else None
         if before is not None and before != content:
             raise ValueError('Immutable release content changed')
-        changes.edits.append(FileEdit(path,before,content,0o600,RUNTIME_OWNER))
+        changes.edits.append(FileEdit(path,before,content,0o700 if name == Path("codex_restore/codex-sessions") else 0o600,RUNTIME_OWNER))
     current = context.paths.data / 'current'
     if current.exists() and not current.is_symlink():
         raise ValueError('Runtime current must be a symlink')
@@ -106,6 +106,11 @@ def build(context: Context, selection: Selection) -> ChangeSet:
                           'typeset -g ITERM2_UTILS_CODEX_NO_DAEMON='+('1' if 'codex:no-daemon' in context.capabilities else '0'),
                           'source '+quote(current/'codex.zsh')])
             if 'restore' in selection.features:
+                lines.extend(['export CODEX_RESTORE_IT2='+quote(context.executables['it2']),
+                              'export CODEX_RESTORE_ITERM_PROCESS='+quote(context.executables['iterm2']/'Contents/MacOS/iTerm2'),
+                              'export CODEX_RESTORE_CACHE_DIR='+quote(context.paths.cache/'restore'),
+                              'typeset -g _codex_restore_no_daemon=1',
+                              '[[ -n ${CODEX_HOME+x} ]] || export CODEX_HOME='+quote(context.paths.codex_home)])
                 restore = quote(current/'codex_restore/codex-resume.zsh')
                 lines.append('[[ ! -f '+restore+' ]] || source '+restore)
         # A no-op existing integration needs no ownership claim.

@@ -82,7 +82,7 @@ class NotifierTests(unittest.TestCase):
             shutil.rmtree(repo)
             marker=f.home/'banner';osascript=f.home/'osascript';sender=f.home/'sender';it2=f.home/'it2'
             osascript.write_text('#!'+sys.executable+'\nprint("false")\n');osascript.chmod(0o700)
-            sender.write_text('#!'+sys.executable+'\nimport sys,json\nfrom pathlib import Path\nPath('+repr(str(marker))+').write_text(json.dumps(sys.argv))\n');sender.chmod(0o700)
+            sender.write_text('#!'+sys.executable+'\nimport sys,json\nfrom pathlib import Path\ntarget=Path('+repr(str(marker))+');temp=target.with_suffix(".tmp");temp.write_text(json.dumps(sys.argv));temp.replace(target)\n');sender.chmod(0o700)
             settings=f.home/'runtime.json';settings.write_text(json.dumps({'notifications':True,'notification_cache':str(f.home/'cache'),'it2':str(it2),'terminal_notifier':str(sender),'osascript':str(osascript)}))
             cmd=[sys.executable,str(context.paths.data/'current/hook.py'),'--agent','codex','--settings',str(settings)]
             env={'HOME':str(f.home),'ITERM_SESSION_ID':UUID}

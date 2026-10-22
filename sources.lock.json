@@ -70,6 +70,168 @@
       "local_snapshot_sha256": "d930eac328f7bfd1f954c309125c445d3958c91ff02453bdc8948cfc75841a6e",
       "license": "MIT",
       "transformation": "Adapter informed by newer installed local snapshot (public SHA unavailable): retain removed PermissionRequest banners, independent Claude mapping, exact UUID focus and bounded observational delivery"
+    },
+    {
+      "path": "runtime/codex_restore/codex-resume.zsh",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codex-resume.zsh",
+      "author": "y.mihalev",
+      "sha256": "9323458581dfba4670fd045a91e87666cce166d91afd1c679c39cb9bcd151376",
+      "upstream_sha256": "9323458581dfba4670fd045a91e87666cce166d91afd1c679c39cb9bcd151376",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codex-sessions",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codex-sessions",
+      "author": "y.mihalev",
+      "sha256": "d8d64fbb974d2e3cfcfeba264342d0963ebeb91067a85e1db25c5092ef441e70",
+      "upstream_sha256": "d8d64fbb974d2e3cfcfeba264342d0963ebeb91067a85e1db25c5092ef441e70",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/__init__.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/__init__.py",
+      "author": "y.mihalev",
+      "sha256": "a526d7de58cc2efae4838e4a82f4b0791add85ecc5ff7c4655b7d11050b426e0",
+      "upstream_sha256": "a526d7de58cc2efae4838e4a82f4b0791add85ecc5ff7c4655b7d11050b426e0",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/cli.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/cli.py",
+      "author": "y.mihalev",
+      "sha256": "e316ebe664aac32162c9155d028ebe08a87dbdb875e378e948908027d01f4e3a",
+      "upstream_sha256": "e316ebe664aac32162c9155d028ebe08a87dbdb875e378e948908027d01f4e3a",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/iterm.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/iterm.py",
+      "author": "y.mihalev",
+      "sha256": "ef6c2fb8af01ea8638fa6c0ec50d8dfa5f631014ae2cb2ba038195b5f3be9386",
+      "upstream_sha256": "2932b5bd6eb76b9d5553695b012b3b3ac8dcd92f3caf6bf8b4f109326bd83acc",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/models.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/models.py",
+      "author": "y.mihalev",
+      "sha256": "ebdaacde14ec7b244496b4ac99906c99300d3b3c57a439a099993599f43f4e9a",
+      "upstream_sha256": "ebdaacde14ec7b244496b4ac99906c99300d3b3c57a439a099993599f43f4e9a",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/registry.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/registry.py",
+      "author": "y.mihalev",
+      "sha256": "72afca6555115efddbd7b18c7ce6df7e096473bb272662ae676eacc7e647eaaa",
+      "upstream_sha256": "72afca6555115efddbd7b18c7ce6df7e096473bb272662ae676eacc7e647eaaa",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/restore.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/restore.py",
+      "author": "y.mihalev",
+      "sha256": "470d6a7fa63ab2054f93bbe0d34af7e0f68f10d56ec90a4bdbb73c494a2d4930",
+      "upstream_sha256": "7c888f5df7417166e4661ac3d95052541623efd8ba61f9fc3dae9599fc030c3c",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/snapshots.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/snapshots.py",
+      "author": "y.mihalev",
+      "sha256": "f0310f082fc8a65480aac852f84d4811a5709de45b5f8e14c478692d24a35514",
+      "upstream_sha256": "f0310f082fc8a65480aac852f84d4811a5709de45b5f8e14c478692d24a35514",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/store.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/store.py",
+      "author": "y.mihalev",
+      "sha256": "4579f3119e2eb1dfc5729061830b2f9be918a8842aa95fd152ea9d2e2659b572",
+      "upstream_sha256": "4579f3119e2eb1dfc5729061830b2f9be918a8842aa95fd152ea9d2e2659b572",
+      "transformation": "none"
+    },
+    {
+      "path": "runtime/codex_restore/codexlib/transcripts.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/codexlib/transcripts.py",
+      "author": "y.mihalev",
+      "sha256": "e68b9119054a44cfa90897a79887fd7437e64695f449f5fddc6b55e029e59f74",
+      "upstream_sha256": "e68b9119054a44cfa90897a79887fd7437e64695f449f5fddc6b55e029e59f74",
+      "transformation": "none"
+    },
+    {
+      "path": "tests/restore/__init__.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/__init__.py",
+      "author": "y.mihalev",
+      "sha256": "f5b6af7952e52bd6c701268494852ae73a6379fedc387098f1e1b3e38d90a8e7",
+      "upstream_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "tests/restore/helpers.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/helpers.py",
+      "author": "y.mihalev",
+      "sha256": "0c3aa6b2a1e2ec9b9f0ec33d081f949084d7f00c336af7c9f416bd7799f4de82",
+      "upstream_sha256": "0c3aa6b2a1e2ec9b9f0ec33d081f949084d7f00c336af7c9f416bd7799f4de82",
+      "transformation": "none"
+    },
+    {
+      "path": "tests/restore/test_cli.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/test_cli.py",
+      "author": "y.mihalev",
+      "sha256": "fe8868df5d27a9a7590f954c98c1143e22682766a5887299040d2e0b748fd8a6",
+      "upstream_sha256": "e1e2ecf23c30eaa126c5bb0cd4695e91f175ebeefbafece2e0147c37d16d3a60",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "tests/restore/test_codex.zsh",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/test_codex.zsh",
+      "author": "y.mihalev",
+      "sha256": "9b7fef43e25a8ba0c01d4bf9538e3d5acabbf9e05e96f4d0750d747102113630",
+      "upstream_sha256": "80d9f0905aeba5c401badf3c99be323153915dfbb94a75232e1a5f73420ea5f2",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "tests/restore/test_registry.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/test_registry.py",
+      "author": "y.mihalev",
+      "sha256": "a1afd88209ff246f762b58bbad70cc7c1ed240be60d769dc66e56b888ec36364",
+      "upstream_sha256": "73401bfa35b88a4fa635593f81fc41a6f8797dd4bb48a42aa57fc193fa868a9d",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "tests/restore/test_restore.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/test_restore.py",
+      "author": "y.mihalev",
+      "sha256": "01534ea453965df80eb9a00947422a6a5ff3b6904e8d478ab88e835631989094",
+      "upstream_sha256": "4348d913c4a69d272ad1d38d17138aba661273bc4165c65b2a1daf34de9cc3c8",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
+    },
+    {
+      "path": "tests/restore/test_snapshots.py",
+      "ref": "15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9",
+      "source": "agent-utils/tools/codex-resume/tests/test_snapshots.py",
+      "author": "y.mihalev",
+      "sha256": "f61ddf76f7b9b4fb9c0386256c89c0d8025c38ad81b10c9472ec38e7ede367b8",
+      "upstream_sha256": "adb429875e2b1d92bebc0b11b0f15ae6ed97ded86c12e4579dfadb2e304d95ac",
+      "transformation": "Local test import/entry harness; selected app process override; uncertain tab outcome reservation protection (as applicable)"
     }
   ]
 }

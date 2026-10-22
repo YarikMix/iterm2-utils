@@ -60,6 +60,8 @@ def build(context, selection):
             raise ValueError('settings object')
         settings.update({feature:feature in selected for feature in ('status','notifications','restore')})
         settings.update(it2=str(context.executables.get('it2','')),cache=str(context.paths.cache/'status'))
+        if 'restore' in selected:
+            settings.update(restore_codex_home=str(context.paths.codex_home),restore_cache=str(context.paths.cache/'restore'),restore_process=str(context.executables['iterm2']/'Contents/MacOS/iTerm2'))
         if 'notifications' in selected:
             from .notifications import runtime_settings
             settings.update(runtime_settings(context))

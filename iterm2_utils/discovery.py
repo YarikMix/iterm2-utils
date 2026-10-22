@@ -66,7 +66,7 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
     executables, versions, capabilities = {}, {}, set()
     if platform.system() == 'Darwin':
         capabilities.add('macos')
-    for name in sorted(agents | {'zsh', 'python3', 'terminal-notifier', 'peekaboo'}):
+    for name in sorted(agents | {'zsh', 'python3', 'terminal-notifier', 'peekaboo', 'fzf'}):
         found = shutil.which(name)
         if not found:
             continue
