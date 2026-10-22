@@ -38,3 +38,16 @@ codex|claude|both` after updating the checkout. It uses a separate receipt, copi
 only the selected agents' skill files and does not enable terminal features.
 User-edited or foreign skill files are preserved as conflicts. Read SKILL.md
 directly if the current session has not refreshed skill discovery.
+
+Doctor checks receipt resources and selected dependencies/registrations without
+writing. `owned_resource_missing`, `owned_resource_changed`, `selected_hook_missing`
+and `registration_changed` require inspection of the named integration; do not
+restore whole backups over foreign settings. A missing/old runtime interpreter
+needs Python >=3.11 and, for a custom path, the absolute `ITERM2_UTILS_PYTHON`
+override on setup commands. Updating then replaces unchanged owned hooks.
+
+`foreign_notifications` requires a separate decision: keep the existing system
+alone, or explicitly plan/install `--coexist-notifications`. Explain duplicate
+banners and preserve the external hooks. Selective uninstall accepts `--agent`.
+Live status checks run only for selected status consumers; MCP checks are
+independent. With no receipt, discovery does not require enabling every feature.

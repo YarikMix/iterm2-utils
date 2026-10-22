@@ -18,7 +18,7 @@ SHORTCUTS = {
 
 def build(context: Context, selection: Selection) -> ChangeSet:
     changes = ChangeSet([], [], [])
-    clipboard = 'clipboard' in selection.features and 'codex' in selection.agents
+    clipboard = 'codex' in selection.agents_for('clipboard')
     shortcuts = selection.shortcuts if 'shortcuts' in selection.features else frozenset()
     if not clipboard and not shortcuts:
         return changes
@@ -39,7 +39,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
         finding('prevent_aps', 'The parent prevents automatic profile switching; choose how to resolve it.')
         return changes
     preferences = context.preferences.get(DOMAIN, {})
-    agents = sorted(selection.agents if shortcuts else {'codex'})
+    agents = sorted(selection.agents_for('shortcuts') | ({'codex'} if clipboard else set()))
     for name, existing in context.profiles.items():
         if (name in {'iterm2-utils:codex', 'iterm2-utils:claude'} and
                 existing.get('Guid') == str(uuid.uuid5(uuid.NAMESPACE_URL, name))):
@@ -57,7 +57,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
             for char in ('0x63', '0x441'):
                 wanted[char+'-0x40000-0x8-0x1'] = {'Action': 11, 'Text': '0x03'}
                 wanted[char+'-0x100000-0x8-0x1'] = {'Action': 11, 'Text': '0x1b 0x5b 0x39 0x39 0x3b 0x39 0x75'}
-        for shortcut in sorted(shortcuts):
+        for shortcut in sorted(selection.shortcuts_for(agent)):
             if shortcut == 'alt-enter' and agent+':alt-enter' not in context.capabilities:
                 finding('shortcut_capability', 'Alt+Enter compatibility has not been verified for this agent version.', agent, 'unavailable')
                 continue

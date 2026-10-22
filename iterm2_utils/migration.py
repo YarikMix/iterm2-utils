@@ -1,5 +1,6 @@
 """Explicit transfer of narrowly recognized legacy resources; no installers run."""
 import shlex
+import hashlib
 import json
 from pathlib import Path
 from .config import jsonfile, tomlfile, zshrc
@@ -36,8 +37,18 @@ def _recognized(name, body, context):
             return False
         path = Path(words[1])
         reference = context.paths.repo/'runtime/codex_restore/codex-resume.zsh'
-        return path.is_absolute() and path.is_file() and path.read_bytes() == reference.read_bytes()
-    except (OSError,ValueError):
+        if not path.is_absolute() or not path.is_file():
+            return False
+        raw = path.read_bytes()
+        if raw == reference.read_bytes():
+            return True
+        # Package interpreter adaptation must not invalidate the pinned legacy
+        # source identity that explicit adoption was designed to recognize.
+        lock = json.loads((context.paths.repo/'sources.lock.json').read_bytes())
+        original = next(e['upstream_sha256'] for e in lock['sources']
+                        if e['path']=='runtime/codex_restore/codex-resume.zsh')
+        return hashlib.sha256(raw).hexdigest() == original
+    except (OSError,ValueError,KeyError,StopIteration):
         return False
 
 

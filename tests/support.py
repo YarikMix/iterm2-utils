@@ -9,7 +9,7 @@ from unittest.mock import patch
 class FakeRunner:
     def __init__(self):
         self.calls = []
-        self.responses = {}
+        self.responses = {'python3':'Python 3.11.9'}
 
     def run(self, argv, *, timeout, stdin=None, env=None):
         self.calls.append((argv, timeout, stdin))
@@ -23,7 +23,7 @@ class Fixture:
         self.home = Path(self.tmp.name)
         self.bin = self.home / 'bin'
         self.bin.mkdir()
-        for name in ('codex', 'claude', 'zsh', 'python3', 'terminal-notifier', 'peekaboo'):
+        for name in ('codex', 'claude', 'zsh', 'python3', 'terminal-notifier', 'peekaboo', 'osascript'):
             file = self.bin / name
             file.write_text('#!/bin/sh\nexit 0\n')
             file.chmod(0o755)

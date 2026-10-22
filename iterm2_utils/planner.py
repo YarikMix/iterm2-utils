@@ -1,9 +1,10 @@
 """Validate explicit choices and produce a read-only readiness preview."""
 import hashlib
 import json
+import re
 from dataclasses import replace
 
-from .models import ChangeSet, Context, Finding, Plan, Selection, UiStep
+from .models import ChangeSet, Context, Finding, Plan, Selection, UiStep, resource_pairs
 
 AGENTS = frozenset({'codex', 'claude'})
 FEATURES = frozenset({'clipboard', 'status', 'notifications', 'restore', 'mcp', 'shell', 'shortcuts'})
@@ -37,7 +38,7 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
     if not selection.parent_profile.strip():
         add('selection', None, 'invalid_parent', 'conflict', 'A parent profile name is required.')
     for feature in sorted(selection.features & FEATURES):
-        for agent in sorted(selection.agents & AGENTS):
+        for agent in sorted(a for a in selection.agents & AGENTS if feature in selection.features_for(a)):
             if feature in CODEX_ONLY and agent != 'codex':
                 add(feature, agent, 'codex_only', 'unavailable', 'This feature is supported only for Codex; Claude is unchanged.')
                 continue
@@ -47,11 +48,16 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
             if feature in {'status', 'notifications', 'restore', 'mcp'}:
                 dependencies.add('python3')
             if feature == 'notifications':
-                dependencies.add('terminal-notifier')
+                dependencies.update({'terminal-notifier', 'it2', 'osascript'})
             missing = sorted(dependencies - context.executables.keys())
             if missing:
                 add(feature, agent, 'missing_binary', 'missing_dependency', 'Required executables: ' + ', '.join(missing))
                 continue
+            if 'python3' in dependencies:
+                version = re.fullmatch(r'(\d+)\.(\d+)(?:\.\d+)?', context.versions.get('python3', ''))
+                if not version or tuple(map(int, version.groups())) < (3, 11):
+                    add(feature, agent, 'python_version', 'missing_dependency', 'Select a verified runtime Python 3.11+ with ITERM2_UTILS_PYTHON; its version is missing or unsupported.')
+                    continue
             if 'macos' not in context.capabilities:
                 add(feature, agent, 'unsupported_platform', 'unavailable', 'The first release supports macOS and zsh.')
                 continue
@@ -71,18 +77,33 @@ def plan(context: Context, selection: Selection) -> Plan:
     selected = replace(selection, features=frozenset(supported))
     payload = {'agents': sorted(selected.agents), 'features': sorted(selected.features),
                'shortcuts': sorted(selected.shortcuts), 'parent_profile': selected.parent_profile,
-               'adopt_legacy': selected.adopt_legacy, 'versions': context.versions,
+               'adopt_legacy': selected.adopt_legacy, 'agent_features': selected.agent_features,
+               'agent_shortcuts': selected.agent_shortcuts, 'coexist_notifications': selected.coexist_notifications,
+               'notification_coexist_agents': selected.notification_coexist_agents, 'versions': context.versions,
                'capabilities': sorted(context.capabilities)}
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     changes = ChangeSet([], [], findings)
     # External status is reused without installing a competing shell/runtime copy.
     reused = context.installed.get('codex-status',{}).get('enabled') and not selected.adopt_legacy
-    runtime_selection = replace(selected,features=selected.features-{'status'}) if reused else selected
+    runtime_selection = selected.without({'status'}, {'codex'}) if reused else selected
     for builder, choice in ((migration.build,selected),(restore.build,selected),(profiles.build,selected),
                             (shell.runtime_payload,runtime_selection),(shell.build,runtime_selection),
                             (status.build,selected),(notifications.build,selected),(mcp.build,selected)):
         try:
             built = builder(context, choice)
+            if selected.agent_features is not None:
+                for edit in built.edits:
+                    target = getattr(edit, 'path', getattr(edit, 'agent', ''))
+                    if edit.owner.startswith('shared:'):
+                        consumers = built.consumers[edit.owner]
+                        if not any(':' in f for f in consumers):
+                            built.consumers[edit.owner] = frozenset().union(*(
+                                resource_pairs(selected, f, target, context, edit.owner) for f in consumers))
+                    else:
+                        pairs = resource_pairs(selected, edit.owner, target, context)
+                        if len(pairs) != 1:
+                            raise ValueError('Exclusive owner requires one consumer')
+                        edit.owner = next(iter(pairs))
             changes.edits.extend(built.edits)
             changes.ui.extend(built.ui)
             changes.findings.extend(built.findings)

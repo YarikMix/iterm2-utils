@@ -10,9 +10,9 @@ acceptance claim.
 | iTerm2 | Official zsh integration v3.7.6; session-status / Python API capability checks | Fixture app/preferences only; live iTerm2 unverified |
 | Codex | --no-daemon required for reliable tab identity; Alt+Enter mapping sourced for 0.163.0 | Fake CLI/hooks; installed live agent unverified |
 | Claude Code | Native cc-status integration checkpoint; Alt+Enter sourced for 2.1.308 | Fake CLI/hooks; native integration and live agent unverified |
-| Python | Installer 3.11+; MCP server requires 3.12+ | Local fixtures: 3.13.7. CI configured for 3.11 and current stable (3.x); remote jobs not run during preparation |
+| Python | Installer and selected hook/restore runtime 3.11+; MCP server requires 3.12+ | Local fixtures: 3.13.7. CI configured for 3.11 and current stable (3.x); remote jobs not run during preparation |
 | MCP | mcp-server-iterm2==0.1.1, mcp<2, invoked through uvx | Fixture initialize/list_sessions/read-only allowlist; live server/TCC unverified |
-| Notifications | terminal-notifier; exact tab UUID targeting | Fixture delivery/focus only; macOS banners/click behavior unverified |
+| Notifications | terminal-notifier, it2, osascript; exact tab UUID targeting; explicit foreign-handler coexistence | Fixture delivery/focus only; macOS banners/click behavior unverified |
 | Restore | Bundled Codex restore port, fzf dependency | Fixture lifecycle/transcript selection only; real dialogs unverified |
 
 Local checks ran on Darwin 25.6.0 arm64, Python 3.13.7 and zsh 5.9. CI jobs print

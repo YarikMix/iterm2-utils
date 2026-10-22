@@ -6,7 +6,7 @@ from dataclasses import replace
 from . import engine, state
 from .config import jsonfile, mcp, zshrc
 from .discovery import status_installations
-from .models import ChangeSet, Finding, Outcome, Plan, Receipt, Selection
+from .models import ChangeSet, Finding, Outcome, Plan, Receipt, Selection, FileEdit
 from .planner import FEATURES, plan, validate
 
 BLOCKING = {'conflict','missing_dependency','unavailable'}
@@ -74,9 +74,9 @@ def install(context, selection, runner, *, dry_run=False):
     if invalid:
         return Outcome(previous,invalid)
     # A receipt selection is cumulative; explicit removals belong to uninstall.
-    if previous.selection.features and (previous.selection.agents != selection.agents or previous.selection.parent_profile != selection.parent_profile):
-        return _problem(previous,'selection_conflict','Keep the recorded agents and parent profile, or uninstall the affected features before changing them.')
-    findings = []
+    if previous.selection.features and (previous.selection.parent_profile != selection.parent_profile):
+        return _problem(previous,'selection_conflict','Keep the recorded parent profile, or uninstall profile features before changing it.')
+    findings = [f for f in validate(selection,context) if f.code=='codex_only' and 'codex' not in selection.agents]
     working = previous
     processed = set()
     migration_group = set()
@@ -87,14 +87,14 @@ def install(context, selection, runner, *, dry_run=False):
             migration_group = {feature for name,feature in {'legacy-status':'status','legacy-restore':'restore'}.items() if name in blocks}
         except (ValueError,OSError):
             pass
-    for feature in ORDER:
-        if feature not in selection.features or feature in processed:
+    for feature, agent in [(f,a) for f in ORDER for a in sorted(selection.agents_for(f))]:
+        if feature+':'+agent in processed:
             continue
         active = migration_group if feature in migration_group and migration_group <= selection.features else {feature}
-        processed.update(active)
-        features = working.selection.features | active
-        shortcuts = selection.shortcuts if feature == 'shortcuts' else working.selection.shortcuts
-        chosen = replace(selection,features=frozenset(features),shortcuts=shortcuts)
+        processed.update(f+':'+agent for f in active)
+        requested = replace(selection, agents=frozenset({agent}))
+        chosen = working.selection.merge(requested, active)
+        active_pairs = frozenset(agent+':'+f for f in active)
         prepared = plan(_context(context),chosen)
         # Codex-only means Claude is untouched when both agents were requested.
         shared_codes = {'shell_conflict','hook_conflict','no_daemon'} if feature in {'status','notifications','restore'} else set()
@@ -102,11 +102,12 @@ def install(context, selection, runner, *, dry_run=False):
             shared_codes |= {'missing_parent','invalid_parent_keyboard_map','prevent_aps','competing_aps','binding_conflict','profile_conflict'}
         prepared.changes.findings = [f for f in prepared.changes.findings
             if (f.feature in (active | {'selection'}) or f.code in shared_codes)
+            and f.agent in {None, agent}
             and not (f.code=='codex_only' and 'codex' in selection.agents)]
         prepared.changes.edits = [edit for edit in prepared.changes.edits
-            if edit.owner in active or active & set(prepared.changes.consumers.get(edit.owner,()))]
-        prepared.changes.ui = [step for step in prepared.changes.ui if step.feature in active]
-        if feature in working.selection.features:
+            if edit.owner in active_pairs or active_pairs & set(prepared.changes.consumers.get(edit.owner,()))]
+        prepared.changes.ui = [step for step in prepared.changes.ui if step.feature in active and step.agent in {None, agent}]
+        if feature in working.selection.features_for(agent):
             pending_codes = {step.code for step in working.pending_ui}
             try:
                 prepared.changes.ui = [step for step in prepared.changes.ui if step.code in pending_codes or
@@ -167,7 +168,7 @@ def update(context, runner, *, dry_run=False):
     return install(context,receipt.selection,runner,dry_run=dry_run)
 
 
-def uninstall(context, owners, runner, *, dry_run=False):
+def uninstall(context, owners, runner, *, dry_run=False, agents=None):
     try:
         receipt = _load(context)
     except (ValueError,OSError):
@@ -176,11 +177,15 @@ def uninstall(context, owners, runner, *, dry_run=False):
         return _problem(None)
     if not owners or owners - FEATURES:
         return _problem(receipt,'invalid_selection','Choose supported features explicitly.')
-    selection = replace(receipt.selection,features=receipt.selection.features-owners,
-                        shortcuts=receipt.selection.shortcuts if 'shortcuts' not in owners else frozenset())
+    agents = receipt.selection.agents if agents is None else agents
+    selection = receipt.selection.without(owners, agents)
+    remove_pairs = receipt.selection.pairs - selection.pairs
+    if not remove_pairs:
+        return Outcome(receipt, [])
+    normalized = engine.pair_resources(receipt.resources, receipt.selection, context)
     # Recompose shared files and remove exclusive resources in ONE transaction.
     prepared = plan(_context(context),selection) if selection.features else Plan(selection,ChangeSet([],[],[]),'uninstall')
-    affected_shared = {owner for r in receipt.resources if set(r['owners']) & owners
+    affected_shared = {owner for r in normalized if set(r['owners']) & remove_pairs
                        for owner in r['owners'] if owner.startswith('shared:')}
     # Runtime files need only consumer removal. Rebuild declarative settings,
     # profiles and shell blocks; never re-register an unrelated retained MCP.
@@ -189,22 +194,22 @@ def uninstall(context, owners, runner, *, dry_run=False):
     # Required consumers come from the committed checkpoint, not from a builder
     # that may have failed before emitting its consumer map.
     retained_consumers = {owner:set() for owner in affected_shared}
-    for resource in receipt.resources:
+    for resource in normalized:
         for owner in affected_shared & set(resource['owners']):
-            retained_consumers[owner].update(set(resource['owners']) & selection.features)
+            retained_consumers[owner].update(set(resource['owners']) & selection.pairs)
     related = set().union(*retained_consumers.values())
     emitted = {edit.owner for edit in prepared.changes.edits}
     for owner, consumers in retained_consumers.items():
         if consumers and owner not in emitted:
-            prepared.changes.findings.append(Finding(sorted(consumers)[0],None,'recomposition_unavailable','conflict',
+            prepared.changes.findings.append(Finding(sorted(consumers)[0].split(':',1)[-1],None,'recomposition_unavailable','conflict',
                 'A retained shared resource could not be rebuilt; the previous selection and ownership are preserved.'))
     prepared.changes.findings = [f for f in prepared.changes.findings
-                                if f.feature in related or f.code in {'shell_conflict','hook_conflict'} and affected_shared]
-    prepared.changes.ui = [s for s in receipt.pending_ui if s.feature not in owners]
+                                if any(p.endswith(':'+f.feature) and (f.agent is None or p.startswith(f.agent+':')) for p in related) or f.code in {'shell_conflict','hook_conflict'} and affected_shared]
+    prepared.changes.ui = [s for s in receipt.pending_ui if (s.agent+':'+s.feature not in remove_pairs if s.agent else s.feature in selection.features)]
     if dry_run:
         return Outcome(receipt,prepared.changes.findings+[Finding(f,None,'uninstall_preview','ready','Only unchanged owned values will be removed.') for f in sorted(owners)])
     snapshots = {k:v for k,v in receipt.ui_snapshots.items() if any(s.code==k for s in prepared.changes.ui)}
-    result = engine.apply(prepared,context,runner,ui_snapshots=snapshots,remove_owners=owners,expected_receipt=receipt)
+    result = engine.apply(prepared,context,runner,ui_snapshots=snapshots,remove_owners=remove_pairs,expected_receipt=receipt)
     if any(f.state in BLOCKING and f.code != 'uninstall_changed' for f in result.findings):
         result.receipt = _load(context) or receipt
     return result
@@ -237,7 +242,7 @@ def reconcile_ui(context, code, runner):
                     if item in before:
                         continue
                     entry = item['entry']
-                    resource = engine._resource('hook',context.paths.claude_settings.resolve(),{'pointer':['hooks',item['event']],'entry':entry,'mode':0o600},engine._value(exists=False),engine._value(entry),'status')
+                    resource = engine._resource('hook',context.paths.claude_settings.resolve(),{'pointer':['hooks',item['event']],'entry':entry,'mode':0o600},engine._value(exists=False),engine._value(entry),'claude:status' if receipt.selection.agent_features is not None else 'status')
                     if not engine._same(engine._read(resource,runner,context),resource['installed']):
                         raise ValueError('Changed native hook')
                     if not any(engine._identity(r)==engine._identity(resource) for r in result.resources):
@@ -259,3 +264,48 @@ def reconcile_ui(context, code, runner):
         except (ValueError,OSError):
             receipt = None
         return Outcome(receipt or _empty(),[Finding('status',None,'ui_verification_failed','pending_ui','Verification was inconclusive; the UI step remains pending and was not retried.')])
+
+
+def doctor(context, receipt, runner):
+    """Read-only verification; never recover journals or reconcile UI implicitly."""
+    prepared = plan(_context(context), receipt.selection)
+    findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.code == 'native_status' and f.state == 'pending_ui']
+    # Reused configuration carries no ownership receipt. Check the selected
+    # declarative addresses too, without applying the generated edits.
+    for edit in prepared.changes.edits:
+        if not isinstance(edit, FileEdit):
+            continue
+        if edit.path not in {context.paths.codex_home/'hooks.json', context.paths.claude_settings}:
+            continue
+        agent = 'codex' if edit.path == context.paths.codex_home/'hooks.json' else 'claude'
+        feature = sorted(receipt.selection.features_for(agent) & {'status','notifications','restore'})[0]
+        try:
+            changed_hooks = engine._compile(edit)
+            if any(r['kind']=='hook' and r['installed']['exists'] for r in changed_hooks):
+                findings.append(Finding(feature, agent, 'selected_hook_missing', 'conflict',
+                    'A selected hook is absent; inspect the installation before updating.'))
+        except (OSError, ValueError, TypeError):
+            findings.append(Finding(feature, agent, 'resource_unavailable', 'conflict',
+                'Selected hook configuration could not be verified.'))
+    for resource in receipt.resources:
+        owner = next((o for o in resource['owners'] if not o.startswith('shared:')), 'selection')
+        agent, feature = owner.split(':', 1) if ':' in owner else (None, owner)
+        try:
+            current = engine._read(resource, runner, context)
+            if not engine._same(current, resource['installed']):
+                missing = resource['installed']['exists'] and not current['exists']
+                findings.append(Finding(feature, agent, 'owned_resource_missing' if missing else 'owned_resource_changed',
+                    'conflict', 'Owned resource is missing: ' + resource['target'] if missing else 'Owned resource differs from the receipt: ' + resource['target']))
+        except (OSError, ValueError, TypeError, RuntimeError):
+            findings.append(Finding(feature, agent, 'resource_unavailable', 'unavailable',
+                'Owned resource could not be inspected: '+resource['target']))
+    # Identical external registrations may be reused without receipt ownership.
+    for agent in sorted(receipt.selection.agents_for('mcp')):
+        try:
+            actual = mcp.inspect(agent, mcp.NAME, context, runner)
+            if actual != mcp.definition():
+                findings.append(Finding('mcp', agent, 'registration_missing' if actual is None else 'registration_changed',
+                    'conflict', 'Selected MCP registration is missing or differs from the pinned definition.'))
+        except (ValueError, OSError, RuntimeError):
+            findings.append(Finding('mcp', agent, 'registration_unavailable', 'unavailable', 'Selected MCP registration could not be verified.'))
+    return findings

@@ -51,3 +51,11 @@ retains its reservation and asks for inspection, preventing automatic retries.
 The local metadata bridge forwards only session_id, cwd, transcript_path and
 hook_event_name transiently; it never persists hook content. Per-file original
 and bundled SHA-256 digests are recorded in sources.lock.json.
+
+The package restore shell adapter now invokes its entrypoint with the selected,
+validated runtime Python; standalone source usage retains its original fallback.
+`runtime/codex.zsh` also adapts the author's pinned restore argument classifier so
+service commands after global options work without selecting restore. The source
+ref/original hash and bundled hashes remain separate in sources.lock.json. Local
+port entries explicitly link this repository's LICENSE and these notices; they
+do not assign a license to the legacy repository.

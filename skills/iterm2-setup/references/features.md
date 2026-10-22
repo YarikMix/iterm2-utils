@@ -35,3 +35,26 @@ Do not replace another server with the same name or expose its secrets.
 Hooks target an explicit tab UUID; never substitute the active tab. Trust is
 confirmed by the human. Existing status installations and migration conflicts
 are reported; adopting legacy resources requires an explicit migration choice.
+
+## Independent agent choices and runtime requirements
+
+Make separate plan/install calls for different choices, for example Codex
+clipboard/status and Claude notifications/MCP. A later agent choice never expands
+previous features to it. Read `selection.agent_features` and `agent_shortcuts` for
+exact intent; aggregate features is only their union. Additional shortcuts are
+also recorded per agent. `uninstall --agent AGENT --features CSV` removes only
+those pairs; omitting `--agent` removes those features across the recorded agents.
+
+Hooks and restore require a detected runtime Python >=3.11. An absolute
+`ITERM2_UTILS_PYTHON` override selects that interpreter for discovery and generated
+hooks/restore; preserve it on subsequent setup commands. Old/unknown versions
+block runtime features only. Notifications additionally require all three
+transports: terminal-notifier, it2 and osascript. A written checkpoint does not
+confirm notification permission or a live API connection.
+
+A known existing notifier/status plugin needs a separate choice. Leave package
+notifications unselected to retain the external system alone. Only after the
+caller chooses coexistence, include `--coexist-notifications` in both plan and
+install. It persists for updates for the chosen agents, preserves every foreign handler and can produce
+duplicate banners. Never infer coexistence from ordinary notification opt-in or
+remove foreign hooks by command-name heuristics.

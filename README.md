@@ -61,7 +61,7 @@ python3 -m iterm2_utils doctor --json
 | --- | --- | --- |
 | `clipboard` | Cmd+C/Ctrl+C EN/RU, без автокопирования при выделении; только Codex | — |
 | `status` | Статус конкретной вкладки, Claude через штатный cc-status | Python, поддерживаемый iTerm2 |
-| `notifications` | Завершение/запрос внимания, переход к своей вкладке | Python, terminal-notifier |
+| `notifications` | Завершение/запрос внимания, переход к своей вкладке | Python 3.11+, terminal-notifier, it2, osascript |
 | `restore` | Выбор диалога Codex для продолжения; только Codex | Python, fzf, Codex --no-daemon |
 | `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
 | `shell` | Штатные отметки команд и навигация zsh в iTerm2 | — |
@@ -161,3 +161,38 @@ SHA-256 файл рядом с архивом ссылается только н
 команды CLI и bootstrap такие же, как из checkout. Подключённый runtime после
 установки не зависит от исходного checkout. Лицензии: [MIT](LICENSE) для кода
 пакета и [отдельные условия vendored-компонентов](THIRD_PARTY_NOTICES.md).
+
+Выбор хранится отдельно для каждого агента. Например, после
+`install --agent codex --features clipboard,status` можно выполнить
+`plan --agent claude --features notifications,mcp --json`, затем такой же `install`:
+Codex сохранит только clipboard/status, Claude получит только notifications/MCP.
+Повторный install добавляет выбранные функции и hotkeys только указанным агентам.
+`selection.agent_features` и `selection.agent_shortcuts` показывают точный выбор;
+верхние `features`/`shortcuts` — его объединение. Старый receipt читается с исходным
+выбором для всех записанных в нём агентов. Update сохраняет эти пары.
+`uninstall --agent claude --features notifications` удаляет только уведомления
+Claude; без `--agent` удаление касается указанной функции у всех выбранных агентов.
+Общие runtime/profiles/shell сохраняются, пока нужны оставшимся потребителям.
+
+Для hooks и restore требуется проверенный **runtime Python 3.11+**. Если первый
+`python3` в PATH слишком старый, задайте абсолютный `ITERM2_UTILS_PYTHON` при plan,
+install, update и doctor. Версия проверяется; один выбранный путь записывается в
+hooks и оболочку restore. Изменение пути при update заменяет собственные hooks
+без дублирования. Clipboard/shell не требуют runtime Python сверх интерпретатора,
+которым уже запущен установщик. Уведомления требуют **terminal-notifier, it2 и
+osascript**; отсутствие любого транспорта блокирует только зависимые функции.
+
+Обнаруженный сторонний terminal-notifier handler или внешний Codex status plugin
+вызывает `foreign_notifications`. Можно оставить существующие уведомления,
+не выбирая функцию пакета. Для осознанного сосуществования сначала добавьте
+`--coexist-notifications` к plan, затем к install: выбор сохраняется для update только у указанных агентов,
+чужие handlers сохраняются, возможны два баннера. Этот флаг не удаляет стороннюю
+интеграцию и не заменяет отдельный `--adopt-legacy`.
+
+Doctor читает ресурсы receipt, зависимости, активные hooks и MCP-регистрации.
+Отсутствующий или изменённый owned ресурс, сломанный current и несовпадающая
+регистрация отражаются отдельными findings без записи файлов. `doctor --live`
+проверяет только выбранных потребителей: Codex-only не требует Claude integration,
+MCP-only не зависит от Session Status. Без receipt doctor сообщает обнаруженные
+возможности; он не предлагает включить невыбранные функции. Чистая offline
+диагностика не подтверждает живую доставку уведомлений или API-связь.

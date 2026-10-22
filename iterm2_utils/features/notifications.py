@@ -1,6 +1,7 @@
 """Pure notification configuration; no permission decisions or live delivery."""
 import json
 import shlex
+from pathlib import Path
 from ..models import ChangeSet,FileEdit,Finding
 from ..config import tomlfile
 
@@ -14,7 +15,11 @@ def build(context,selection):
     changes=ChangeSet([],[],[])
     if 'notifications' not in selection.features:
         return changes
-    if 'codex' in selection.agents:
+    conflicts = [a for a in foreign_handlers(context, selection) if not selection.coexist_for(a)]
+    if conflicts:
+        changes.findings.extend(Finding('notifications', agent, 'foreign_notifications', 'conflict',
+            'Existing notification handler detected. Keep it by leaving notifications unselected, or explicitly choose --coexist-notifications (duplicate banners may occur); foreign handlers will be preserved.') for agent in conflicts)
+    if 'codex' in selection.agents_for('notifications') and 'codex' not in conflicts:
         if 'codex:approval-notifications' not in context.capabilities:
             changes.findings.append(Finding('notifications','codex','native_policy_version','unavailable','Native approval policy is verified only for Codex 0.163.0; this version is unverified.'))
         else:
@@ -24,7 +29,7 @@ def build(context,selection):
                 changes.edits.append(FileEdit(path,before,after,0o600,'notifications'))
             except ValueError:
                 changes.findings.append(Finding('notifications','codex','native_policy_conflict','conflict','Codex native notification policy cannot be safely edited.'))
-    if 'claude' in selection.agents:
+    if 'claude' in selection.agents_for('notifications') and 'claude' not in conflicts:
         settings_path=context.paths.config/'runtime.json'
         path=context.paths.claude_settings;before=path.read_bytes() if path.exists() else None
         try:
@@ -34,15 +39,36 @@ def build(context,selection):
                 entry={'hooks':[{'type':'command','command':command,'timeout':3}]}
                 if name=='Notification':entry['matcher']=MATCHER
                 entries=hooks.setdefault(name,[])
+                from .status import replace_owned_hook
+                replace_owned_hook(context, path, name, entries, entry)
                 if entry not in entries:entries.append(entry)
             changes.edits.append(FileEdit(path,before,(json.dumps(document,sort_keys=True,indent=2)+'\n').encode(),0o600,'notifications'))
-            if 'codex' not in selection.agents:
-                previous=settings_path.read_bytes() if settings_path.exists() else None
-                settings=json.loads(previous or b'{}')
-                settings.update(runtime_settings(context),notifications=True,status=False,restore=False,it2=str(context.executables.get('it2','')))
-                changes.edits.append(FileEdit(settings_path,previous,(json.dumps(settings,sort_keys=True,indent=2)+'\n').encode(),0o600,'shared:hooks'))
-                changes.consumers['shared:hooks']=frozenset({'notifications'})
         except (ValueError,TypeError,AttributeError,KeyError):
             changes.edits.clear()
             changes.findings.append(Finding('notifications','claude','hook_conflict','conflict','Claude notification hooks cannot be safely merged.'))
     return changes
+
+
+def foreign_handlers(context, selection):
+    """Recognize exact notifier executables, without storing command bodies."""
+    from .status import owned_entries
+    found = set()
+    for agent in selection.agents_for('notifications'):
+        if agent == 'codex' and context.installed.get('codex-status', {}).get('enabled'):
+            found.add(agent)
+        path = context.paths.claude_settings if agent == 'claude' else context.paths.codex_home/'hooks.json'
+        document = json.loads(path.read_bytes()) if path.exists() else {}
+        for event, entries in document.get('hooks', {}).items():
+            owned = owned_entries(context, path, event)
+            for entry in entries:
+                if entry in owned:
+                    continue
+                for hook in entry.get('hooks', []):
+                    if hook.get('type') != 'command':
+                        continue
+                    words = shlex.split(hook.get('command', ''))
+                    if words and words[0] in {'exec','command'}:
+                        words = words[1:]
+                    if words and Path(words[0]).name == 'terminal-notifier':
+                        found.add(agent)
+    return sorted(found)

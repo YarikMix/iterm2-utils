@@ -391,6 +391,23 @@ def _transaction(changes,result,context,runner):
         return False,findings
 
 
+def pair_resources(resources, selection, context):
+    from .models import resource_pairs
+    result = copy.deepcopy(resources)
+    for resource in result:
+        owners = []
+        shared = next((o for o in resource['owners'] if o.startswith('shared:')), None)
+        for owner in resource['owners']:
+            if ':' in owner:
+                owners.append(owner)
+            else:
+                owners.extend(sorted(resource_pairs(selection, owner, resource['target'], context, shared)))
+        if shared == 'shared:hooks' and resource['target'] == str((context.paths.codex_home/'hooks.json').resolve()):
+            owners = ['shared:codex-hooks' if o == shared else o for o in owners]
+        resource['owners'] = list(dict.fromkeys(owners))
+    return result
+
+
 def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, remove_owners=frozenset(), expected_receipt=...) -> Outcome:
     empty = _empty(plan.selection)
     findings = list(plan.changes.findings)
@@ -403,7 +420,7 @@ def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, re
             consumers = None
             if edit.owner.startswith('shared:'):
                 consumers = plan.changes.consumers.get(edit.owner)
-                if not consumers or not consumers <= plan.selection.features:
+                if not consumers or not consumers <= (plan.selection.features | plan.selection.pairs):
                     raise ValueError('Shared dependency consumers must be explicit')
             for r in _compile(edit):
                 if consumers is not None:
@@ -419,6 +436,9 @@ def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, re
             if expected_receipt is not ... and persisted != expected_receipt:
                 raise ValueError('Receipt changed since feature planning')
             previous = persisted or empty
+            previous = copy.deepcopy(previous)
+            if plan.selection.agent_features is not None:
+                previous.resources = pair_resources(previous.resources, previous.selection, context)
             resources = copy.deepcopy(previous.resources)
             # A regenerated builder may describe an implemented no-op. Reuse only
             # addresses already owned by this exact feature/shared marker, never
@@ -459,6 +479,8 @@ def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, re
                     if not _same(r['installed'],current):
                         changes.append(r)
                         own['installed'] = r['installed']
+                    if own['kind'] == 'hook' and not own['installed']['exists'] and not own['before']['exists']:
+                        resources.remove(own)
                 else:
                     # Reuse an exact existing MCP registration without adopting it.
                     if r['kind'] == 'registration' and _same(current,r['installed']):

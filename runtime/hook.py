@@ -22,7 +22,7 @@ def dispatch(event, settings: dict, runner: Runner, *, restore_metadata=None) ->
     if not status.terminal_id(event.terminal_uuid):
         return
     # Independent, optional handlers are registered by their feature modules.
-    if settings.get('notifications'):
+    if settings.get('notifications') and event.agent in settings.get('notification_agents', ['codex','claude']):
         try:
             try:
                 from notifier import handle

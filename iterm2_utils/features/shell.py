@@ -19,7 +19,7 @@ DEPENDENTS = frozenset({'status', 'notifications', 'restore'})
 
 
 def _dispatcher(selection):
-    return 'codex' in selection.agents and bool(selection.features & DEPENDENTS)
+    return bool(selection.features_for('codex') & DEPENDENTS)
 
 
 def _consumers(selection):
@@ -113,7 +113,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
             lines.extend(['typeset -g ITERM2_UTILS_PYTHON='+quote(context.executables['python3']),
                           'typeset -g ITERM2_UTILS_CODEX_NO_DAEMON='+('1' if 'codex:no-daemon' in context.capabilities else '0'),
                           'source '+quote(current/'codex.zsh')])
-            if 'restore' in selection.features:
+            if 'restore' in selection.features_for('codex'):
                 lines.extend(['export CODEX_RESTORE_IT2='+quote(context.executables['it2']),
                               'export CODEX_RESTORE_ITERM_PROCESS='+quote(context.executables['iterm2']/'Contents/MacOS/iTerm2'),
                               'export CODEX_RESTORE_CACHE_DIR='+quote(context.paths.cache/'restore'),
@@ -125,7 +125,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
         if lines or 'root' in managed:
             after = zshrc.block(base,'root','\n'.join(lines) if lines else None)
             changes.edits.append(FileEdit(path,before,after,0o600,OWNER))
-            changes.consumers[OWNER] = frozenset((selection.features & DEPENDENTS if dispatch else frozenset()) | ({'shell'} if marks else set()))
+            changes.consumers[OWNER] = frozenset((selection.features_for('codex') & DEPENDENTS if dispatch else frozenset()) | ({'shell'} if marks else set()))
     except (ValueError, UnicodeError):
         changes.findings.append(Finding('shell',None,'shell_conflict','conflict','Shell startup contains conflicting or ambiguous managed integration; explicit migration is required.'))
     return changes

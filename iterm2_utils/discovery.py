@@ -67,7 +67,9 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
     if platform.system() == 'Darwin':
         capabilities.add('macos')
     for name in sorted(agents | {'zsh', 'python3', 'terminal-notifier', 'peekaboo', 'fzf', 'uvx'}):
-        found = shutil.which(name)
+        found = os.environ.get('ITERM2_UTILS_PYTHON') if name == 'python3' and os.environ.get('ITERM2_UTILS_PYTHON') else shutil.which(name)
+        if found and not Path(found).is_absolute():
+            found = None
         if not found:
             continue
         binary = Path(found).absolute()
@@ -162,13 +164,15 @@ def status_installations(paths: Paths, app: Path | None = None) -> dict:
     return installed
 
 
-def live_status(context: Context, runner: Runner) -> list:
+def live_status(context: Context, runner: Runner, selection=None) -> list:
     """Bounded read-only explicit-session API probe; payload never serialized."""
     from .models import Finding
     from runtime.events import terminal_id
     findings=[]
+    if selection is None or not selection.agents_for('status'):
+        return findings
     if 'iterm2:session-status' not in context.capabilities:
-        findings.append(Finding('status','codex','status_capability','unavailable','iTerm2 session status capability is unavailable.'))
+        findings.append(Finding('status',next(iter(selection.agents_for('status'))) if len(selection.agents_for('status')) == 1 else None,'status_capability','unavailable','iTerm2 session status capability is unavailable.'))
         return findings
     terminal=terminal_id(os.environ.get('ITERM_SESSION_ID',''))
     ready=False
@@ -181,6 +185,8 @@ def live_status(context: Context, runner: Runner) -> list:
             pass
     findings.append(Finding('status',None,'status_api','ready' if ready else 'pending_ui',
                             'Explicit-session API is reachable.' if ready else 'Enable Python API and authorize it2, then run doctor --live from an iTerm2 session.'))
+    if 'claude' not in selection.agents_for('status'):
+        return findings
     if context.installed.get('claude-status',{}).get('enabled'):
         findings.append(Finding('status','claude','native_status','ready','Native cc-status hook detected.'))
     else:

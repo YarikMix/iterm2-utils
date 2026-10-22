@@ -42,6 +42,25 @@ def durable_write(path, content, mode=0o600, *, before_replace=None):
 
 
 def validate(receipt):
+    choice = receipt.selection
+    if not isinstance(choice.parent_profile, str) or type(choice.adopt_legacy) is not bool or type(choice.coexist_notifications) is not bool:
+        raise ValueError('Invalid selection')
+    if choice.notification_coexist_agents is not None and (not isinstance(choice.notification_coexist_agents, list) or
+            any(not isinstance(a,str) or a not in choice.agents for a in choice.notification_coexist_agents)):
+        raise ValueError('Invalid coexistence choice')
+    if (choice.agent_features is None) != (choice.agent_shortcuts is None):
+        raise ValueError('Incomplete pairwise selection')
+    if choice.agent_features is not None:
+        for mapping, allowed in ((choice.agent_features, choice.features), (choice.agent_shortcuts, choice.shortcuts)):
+            if not isinstance(mapping, dict) or set(mapping) != set(choice.agents):
+                raise ValueError('Invalid pairwise agents')
+            for agent, values in mapping.items():
+                if not isinstance(values, list) or any(not isinstance(v,str) for v in values) or len(set(values)) != len(values) or not set(values) <= allowed:
+                    raise ValueError('Invalid pairwise choices')
+            if set().union(*(set(values) for values in mapping.values())) != set(allowed):
+                raise ValueError('Pairwise choices disagree with aggregate')
+        if any(choice.agent_shortcuts[a] and 'shortcuts' not in choice.agent_features[a] for a in choice.agents):
+            raise ValueError('Shortcut choices require their feature')
     if receipt.version != VERSION or not isinstance(receipt.resources,list):
         raise ValueError('Unsupported receipt')
     if not isinstance(receipt.ui_snapshots, dict) or set(receipt.ui_snapshots) - {'claude-native-status'}:

@@ -79,6 +79,7 @@ EXPORT_FILES = (
     'tests/test_discovery.py',
     'tests/test_engine.py',
     'tests/test_export.py',
+    'tests/test_final_fixes.py',
     'tests/test_lifecycle.py',
     'tests/test_mcp.py',
     'tests/test_migration.py',
@@ -150,12 +151,29 @@ def check(repo: Path) -> list[str]:
                 raise ValueError()
             if hashlib.sha256(contents[name]).hexdigest() != digest:
                 errors.append('Source digest mismatch: '+name)
+            from urllib.parse import urlparse
+            if 'url' in entry:
+                url = urlparse(entry['url'])
+                if url.scheme != 'https' or not url.hostname or url.username or url.password:
+                    raise ValueError()
+            elif not all(isinstance(entry.get(k), str) and entry[k].strip() for k in ('source','author')):
+                raise ValueError()
+            if not isinstance(entry.get('license'), str) or not entry['license'].strip():
+                raise ValueError()
+            if entry.get('license_file') not in contents or entry.get('attribution_file') != 'THIRD_PARTY_NOTICES.md':
+                raise ValueError()
+            if 'source' in entry and entry.get('license_scope') != 'bundled-port-only':
+                raise ValueError()
+            if entry.get('transformation') not in (None, 'none') and not any(k in entry for k in ('upstream_sha256','local_snapshot_sha256')):
+                raise ValueError()
+            if 'source' in entry and 'upstream_sha256' not in entry:
+                raise ValueError()
             for field in ('upstream_sha256', 'local_snapshot_sha256'):
                 if field in entry and not _SHA.fullmatch(entry[field]):
                     raise ValueError()
         required = {n for n in contents if n.startswith('vendor/')}
         required |= {n for n in contents if n.startswith('runtime/codex_restore/codexlib/')}
-        required |= {'runtime/notifier.py','runtime/focus.py','runtime/codex_restore/codex-resume.zsh','runtime/codex_restore/codex-sessions'}
+        required |= {'runtime/codex.zsh','runtime/notifier.py','runtime/focus.py','runtime/codex_restore/codex-resume.zsh','runtime/codex_restore/codex-sessions'}
         if not required <= seen:
             errors.append('Missing source provenance')
     except (KeyError, TypeError, ValueError, AttributeError):

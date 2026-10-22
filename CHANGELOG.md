@@ -10,3 +10,10 @@ an explicit file allowlist and includes all source/license notices.
 
 Automated checks use isolated fixtures. Live macOS/iTerm2/agent acceptance and
 fresh-model skill behavior remain unverified; see [compatibility](docs/compatibility.md).
+
+Final beta integration corrections: independent per-agent feature/shortcut
+receipts and selective removal; owned hook replacement after interpreter changes;
+read-only resource/dependency doctor and selected live probes; Python 3.11+ runtime
+and complete notification prerequisites; explicit foreign-notification coexistence;
+standalone daemon-command classification; materialized evaluation fixtures and
+strict provenance metadata. Live/model acceptance remains unverified.

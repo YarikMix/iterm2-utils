@@ -14,7 +14,7 @@ class LifecycleFixture(unittest.TestCase):
         self.tmp = TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         p = Path(self.tmp.name)
         paths = Paths(p, p/'.zshrc', p/'codex', p/'claude/settings.json', p/'config', p/'cache', p/'data', p/'profiles', Path(__file__).resolve().parents[1])
-        self.context = Context(paths, {n:p/'bin'/n for n in ('iterm2','it2','zsh','python3','codex','claude','terminal-notifier','fzf','uvx')}, {'fzf':'0.60.0'}, frozenset({'macos','codex:no-daemon','iterm2:session-status','codex:approval-notifications','codex:alt-enter','claude:alt-enter'}), {'Default':{'Name':'Default','Keyboard Map':{'foreign':{'Action':1}}}}, {})
+        self.context = Context(paths, {n:p/'bin'/n for n in ('iterm2','it2','zsh','python3','codex','claude','terminal-notifier','fzf','uvx','osascript')}, {'fzf':'0.60.0','python3':'3.11.9'}, frozenset({'macos','codex:no-daemon','iterm2:session-status','codex:approval-notifications','codex:alt-enter','claude:alt-enter'}), {'Default':{'Name':'Default','Keyboard Map':{'foreign':{'Action':1}}}}, {})
         self.runner = FakeRunner(); self.preferences = {}; self.registrations = {}
         def pref_read(runner, domain, key):
             return {'exists':key in self.preferences,'value':self.preferences.get(key)}

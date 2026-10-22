@@ -9,6 +9,16 @@ if (( ${+functions[codex]} )) && [[ ${functions[codex]} != ${_codex_restore_inst
 fi
 typeset -g _codex_restore_root=${${(%):-%x}:A:h}
 
+# Package installs pass the same verified absolute Python as the hook runtime.
+# Standalone source usage retains its original executable entrypoint.
+function _codex_restore_sessions {
+  if [[ -n ${ITERM2_UTILS_PYTHON-} ]]; then
+    "$ITERM2_UTILS_PYTHON" "$_codex_restore_root/codex-sessions" "$@"
+  else
+    "$_codex_restore_root/codex-sessions" "$@"
+  fi
+}
+
 function _codex_restore_previous_call {
   if (( ${+functions[_codex_restore_previous]} )); then
     _codex_restore_previous "$@"
@@ -95,7 +105,7 @@ function _codex_restore_call {
     local shell_pid=$sysparams[pid]
     register_args=(register --terminal "$ITERM_SESSION_ID" --shell-pid "$shell_pid")
     [[ -n ${CODEX_RESTORE_REQUEST-} ]] && register_args+=(--request "$CODEX_RESTORE_REQUEST")
-    token=$("$_codex_restore_root/codex-sessions" "${register_args[@]}") || token=''
+    token=$(_codex_restore_sessions "${register_args[@]}") || token=''
   fi
   if [[ -z $token ]]; then
     _codex_restore_previous_call "${arguments[@]}"
@@ -106,7 +116,7 @@ function _codex_restore_call {
     _codex_restore_previous_call "${arguments[@]}"
     result=$?
   } always {
-    "$_codex_restore_root/codex-sessions" finish "$token" || true
+    _codex_restore_sessions finish "$token" || true
   }
   return $result
 }
@@ -115,7 +125,7 @@ function _codex_restore_select {
   emulate -L zsh
   local rows selected output result
   local -a fields
-  rows=$("$_codex_restore_root/codex-sessions" restore-list "$@") || return $?
+  rows=$(_codex_restore_sessions restore-list "$@") || return $?
   if [[ -z $rows ]]; then
     [[ ${1-} == --auto ]] || print -- 'Codex: восстанавливать нечего'
     return 0
@@ -136,7 +146,7 @@ function _codex_restore_select {
   [[ -n $selected ]] || return 0
   # zsh preserves NUL bytes in command substitution. Capture the producer's
   # status before splitting; a read loop/process substitution would hide it.
-  output=$(print -r -- "$selected" | "$_codex_restore_root/codex-sessions" restore-open) || return $?
+  output=$(print -r -- "$selected" | _codex_restore_sessions restore-open) || return $?
   [[ -n $output ]] || return 0
   fields=("${(@0)output}")
   local uuid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -145,7 +155,7 @@ function _codex_restore_select {
     return 1
   fi
   if ! builtin cd -- "$fields[3]"; then
-    "$_codex_restore_root/codex-sessions" restore-cancel "$fields[1]" || true
+    _codex_restore_sessions restore-cancel "$fields[1]" || true
     return 1
   fi
   local -x CODEX_HOME=$fields[4] CODEX_RESTORE_REQUEST=$fields[1] CODEX_RESTORE_CACHE_DIR=$fields[5]

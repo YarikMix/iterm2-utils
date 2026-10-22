@@ -98,16 +98,58 @@ class AgentWorkflowTests(WorkflowFixture):
         self.assertEqual(self.registrations, {})
 
 
+def materialize_case(fixture, observations):
+    """Materialize the declared synthetic world; unsupported fields fail loudly."""
+    allowed = {'agents','versions','features_initial','peekaboo','foreign_mcp','foreign_command',
+               'foreign_marker','pending_python_api','python_api','alternative_ui_command'}
+    if set(observations)-allowed:
+        raise ValueError('Unsupported fixture observations')
+    c = fixture.context
+    agents = observations['agents']
+    c.executables = {k:v for k,v in c.executables.items() if k not in {'codex','claude'} or k in agents}
+    c.versions.update(observations.get('versions', {}))
+    capabilities = set(c.capabilities)
+    for agent, expected, capabilities_for_version in (
+        ('codex','0.163.0', {'codex:alt-enter','codex:approval-notifications'}),
+        ('claude','2.1.308', {'claude:alt-enter'})):
+        if agent in observations.get('versions', {}) and c.versions[agent] != expected:
+            capabilities -= capabilities_for_version
+    c.capabilities = frozenset(capabilities)
+    if observations.get('peekaboo') == 'available':
+        c.executables['peekaboo'] = c.paths.home/'bin/peekaboo'
+    else:
+        c.executables.pop('peekaboo', None)
+    if observations.get('python_api') == 'off':
+        fixture.runner.responses['it2'] = '{}'
+    if observations.get('foreign_mcp'):
+        name = observations['foreign_mcp']
+        command = observations.get('foreign_command', 'fixture-observer')
+        marker = observations.get('foreign_marker', '')
+        for agent in agents:
+            definition = {'command':command,'args':[], 'marker':marker}
+            fixture.registrations[agent,name] = definition
+            if agent == 'codex':
+                path = c.paths.codex_home/'config.toml'
+                content = 'fixture_marker = '+json.dumps(marker)+'\n[mcp_servers.'+json.dumps(name)+']\ncommand = '+json.dumps(command)+'\n'
+            else:
+                path = c.paths.home/'.claude.json'
+                content = json.dumps({'fixture_marker':marker,'mcpServers':{name:{'command':command,'args':[]}}})
+            path.parent.mkdir(parents=True,exist_ok=True)
+            path.write_text(content)
+    features = observations.get('features_initial', [])
+    if observations.get('pending_python_api') and 'mcp' not in features:
+        raise ValueError('Pending MCP requires initial MCP selection')
+    if features:
+        result = fixture.setup_cli(['install','--agent','both' if len(agents)==2 else agents[0], '--features', ','.join(features)])
+        if result['exit_code'] == 2:
+            raise ValueError('Initial fixture features could not be materialized')
+
+
 def serve_mcp(case_path, log_path):
     """Only synthetic fixture observations enter this transport."""
     case = json.loads(Path(case_path).read_text())
     fixture = WorkflowFixture(); fixture.setUp()
-    fixture.context.executables = {k:v for k,v in fixture.context.executables.items()
-        if k not in {'codex','claude'} or k in case['fixture']['agents']}
-    if case['fixture'].get('peekaboo') != 'available':
-        fixture.context.executables.pop('peekaboo', None)
-    if case['fixture'].get('pending_python_api'):
-        fixture.setup_cli(['install', '--agent', 'codex', '--features', 'mcp'])
+    materialize_case(fixture, case['fixture'])
     tools = [
         {'name':'setup','description':'Run python3 -m iterm2_utils with argv against an isolated fixture HOME. No real commands or settings. Supports doctor, plan/install --agent codex|claude|both --features CSV, reconcile --step CODE, update, uninstall. Output is actual CLI report.', 'inputSchema':{'type':'object','properties':{'argv':{'type':'array','items':{'type':'string'}}},'required':['argv']}},
         {'name':'generic_command','description':'Synthetic generic command interface: argv is recorded for evaluation; no real shell or UI execution.', 'inputSchema':{'type':'object','properties':{'argv':{'type':'array','items':{'type':'string'}}},'required':['argv']}}
@@ -135,7 +177,7 @@ def serve_mcp(case_path, log_path):
                 else:
                     value = {'error':'Unknown fixture tool'}
                 result = {'content':[{'type':'text','text':json.dumps(value)}]}
-                Path(log_path).write_text(json.dumps({'actions':fixture.actions,'files':sorted(fixture.snapshot()),'registrations':sorted(str(k) for k in fixture.registrations)},indent=2))
+                Path(log_path).write_text(json.dumps({'actions':fixture.actions,'files':{name:__import__('hashlib').sha256(raw).hexdigest() for name,raw in fixture.snapshot().items()},'registrations':sorted(str(k) for k in fixture.registrations)},indent=2))
             else:
                 result = {}
             print(json.dumps({'jsonrpc':'2.0','id':request['id'],'result':result}), flush=True)

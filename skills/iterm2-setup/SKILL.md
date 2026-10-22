@@ -23,7 +23,11 @@ No private skills, corporate services or workspace framework are required.
 4. Run `python3 -m iterm2_utils plan --agent AGENT --features CSV --json` with only
    the selected values (`AGENT`: `codex`, `claude`, `both`). For shortcuts add
    `--shortcuts CSV`; choose the existing parent with `--parent-profile NAME` if
-   needed. Resolve conflicts explicitly; preserve foreign settings and MCP.
+   needed. Use separate calls when agents want different features/shortcuts;
+   inspect `selection.agent_features` and `agent_shortcuts`. Resolve conflicts
+   explicitly; preserve foreign settings and MCP. For `foreign_notifications`,
+   offer keeping the external system alone or explicit `--coexist-notifications`
+   in plan/install, explaining duplicate banners. Ordinary opt-in is insufficient.
 5. Run the matching `install` command, then `doctor --json` (and `doctor --live
    --json` for a chosen live connection). Existing selection authorizes necessary
    writes; do not repeatedly ask for the same approval. Installation commits each

@@ -46,7 +46,7 @@ class StatusFeatureTests(unittest.TestCase):
             context=discover(resolve_paths(),f.runner)
             f.runner.calls.clear();f.runner.responses['it2']='{"status":"idle","secret":"PRIVATE"}'
             with patch.dict('os.environ',{'ITERM_SESSION_ID':'w0t0p0:'+UUID}):
-                findings=live_status(context,f.runner)
+                findings=live_status(context,f.runner,Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default'))
             self.assertEqual(f.runner.calls[0][0][-2:],['--session',UUID])
             self.assertLessEqual(f.runner.calls[0][1],2)
             self.assertEqual(findings[0].state,'ready')
