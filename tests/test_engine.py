@@ -268,3 +268,49 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(json.loads(p.read_bytes()),{'ours':0})
         self.assertEqual(stat.S_IMODE(p.stat().st_mode),0o640)
         self.assertFalse(result.findings)
+
+    def test_owned_address_change_between_value_and_raw_read_is_preserved(self):
+        p=self.root/'settings.json';p.write_bytes(b'{"ours":0}')
+        read=engine._read
+        raced=False
+        def concurrent(resource,runner):
+            nonlocal raced
+            value=read(resource,runner)
+            import inspect
+            if inspect.currentframe().f_back.f_code.co_name == '_set' and not raced:
+                raced=True
+                p.write_bytes(b'{"ours":9,"user":7}')
+            return value
+        with patch.object(engine,'_read',new=concurrent):
+            result=engine.apply(self.plan([FileEdit(p,b'{"ours":0}',b'{"ours":1}',0o600,'clipboard')]),self.context,None)
+        self.assertTrue(raced)
+        self.assertEqual(p.read_bytes(),b'{"ours":9,"user":7}')
+        self.assertTrue(result.findings)
+
+    def test_fresh_unchanged_json_and_toml_plans_retain_ownership_and_consumers(self):
+        for suffix,old,new in (('json',b'{"ours":0}',b'{"ours":1}'),('toml',b'[tui]\nours=0\n',b'[tui]\nours=1\n')):
+            with self.subTest(suffix=suffix):
+                p=self.root/('fresh.'+suffix);p.write_bytes(old)
+                selection=Selection(frozenset({'codex'}),frozenset({'shell'}),frozenset(),'Default')
+                changes=ChangeSet([FileEdit(p,old,new,0o600,'shared:runtime')],[],[],{'shared:runtime':frozenset({'shell'})})
+                one=engine.apply(Plan(selection,changes,'fixture'),self.context,None)
+                self.assertFalse(one.findings)
+                current=p.read_bytes()
+                selection=Selection(frozenset({'codex'}),frozenset({'status','clipboard'}),frozenset(),'Default')
+                changes=ChangeSet([FileEdit(p,current,current,0o600,'shared:runtime')],[],[],{'shared:runtime':frozenset({'status'})})
+                two=engine.apply(Plan(selection,changes,'fixture'),self.context,None)
+                self.assertFalse(two.findings)
+                owned=next(r for r in two.receipt.resources if r['target']==str(p.resolve()))
+                self.assertEqual(set(owned['owners']),{'shared:runtime','shell','status'})
+                self.assertEqual(owned['before'],one.receipt.resources[-1]['before'])
+                self.assertEqual(p.read_bytes(),current)
+
+    def test_fresh_noop_does_not_adopt_another_features_address(self):
+        p=self.root/'settings.json';p.write_bytes(b'{"ours":0,"foreign":7}')
+        one=engine.apply(self.plan([FileEdit(p,p.read_bytes(),b'{"ours":1,"foreign":7}',0o600,'clipboard')]),self.context,None)
+        selection=Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default')
+        current=p.read_bytes()
+        two=engine.apply(Plan(selection,ChangeSet([FileEdit(p,current,current,0o600,'status')],[],[]),'fixture'),self.context,None)
+        self.assertFalse(two.findings)
+        self.assertEqual(two.receipt.resources,one.receipt.resources)
+        self.assertEqual(two.receipt.resources[0]['owners'],['clipboard'])

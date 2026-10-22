@@ -173,7 +173,11 @@ def _read(r,runner):
         if registration_adapter is None:
             raise ValueError('Registration backend unavailable')
         return registration_adapter.read(runner,r['target'],loc['name'])
-    raw = _bytes(Path(r['target']))
+    return _file_value(r,_bytes(Path(r['target'])))
+
+
+def _file_value(r,raw):
+    kind,loc = r['kind'],r['locator']
     if kind == 'file':
         return _encode(raw)
     if raw is None:
@@ -224,6 +228,9 @@ def _set(r,value,runner, *, expected):
         return
     path = Path(r['target'])
     raw = _bytes(path)
+    # Validate the exact snapshot used for patching and final bytes CAS.
+    if not _same(_file_value(r,raw),expected):
+        raise ValueError('Concurrent resource edit before patch')
     if kind == 'file':
         result = base64.b64decode(value['value'],validate=True) if value['exists'] else None
     elif kind == 'zsh':
@@ -356,7 +363,7 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                 if consumers is not None:
                     r['owners'].extend(sorted(consumers))
                 compiled.append(r)
-        if not compiled:
+        if not plan.changes.edits:
             return Outcome(empty,findings+[_finding('no_implemented_features','No selected feature has an implemented installer.','selection','unavailable')])
         with _lock(context):
             recovery = _recover(context,runner)
@@ -364,6 +371,30 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                 return Outcome(empty,findings+recovery)
             previous = state.load(context.paths.data/'receipt.json') or empty
             resources = copy.deepcopy(previous.resources)
+            # A regenerated builder may describe an implemented no-op. Reuse only
+            # addresses already owned by this exact feature/shared marker, never
+            # infer ownership from other unchanged values in the same file.
+            for edit in plan.changes.edits:
+                if not isinstance(edit,FileEdit) or edit.after is None:
+                    continue
+                for owned in previous.resources:
+                    if (owned['target'] != str(_resolve(edit.path)) or
+                            edit.owner not in owned['owners'] or
+                            owned['kind'] not in {'json','toml','zsh'}):
+                        continue
+                    before = _file_value(owned,edit.before)
+                    after = _file_value(owned,edit.after)
+                    if not _same(before,after):
+                        continue
+                    if not _same(before,owned['installed']):
+                        raise ValueError('Owned unchanged address no longer matches')
+                    reference = copy.deepcopy(owned)
+                    reference['before'] = before
+                    reference['installed'] = after
+                    reference['owners'] = [edit.owner]
+                    if edit.owner.startswith('shared:'):
+                        reference['owners'].extend(sorted(plan.changes.consumers[edit.owner]))
+                    compiled.append(reference)
             changes = []
             for r in compiled:
                 current = _read(r,runner)
