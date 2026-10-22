@@ -1,5 +1,5 @@
 """Shared data contracts. Builders describe changes without applying them."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -54,6 +54,14 @@ class FileEdit:
 
 
 @dataclass
+class SymlinkEdit:
+    path: Path
+    before: str | None
+    after: str | None
+    owner: str
+
+
+@dataclass
 class PreferenceEdit:
     domain: str
     key: str
@@ -81,9 +89,10 @@ class UiStep:
 
 @dataclass
 class ChangeSet:
-    edits: list[FileEdit | PreferenceEdit | RegistrationEdit]
+    edits: list[FileEdit | SymlinkEdit | PreferenceEdit | RegistrationEdit]
     ui: list[UiStep]
     findings: list[Finding]
+    consumers: dict[str, frozenset[str]] = field(default_factory=dict)
 
 
 @dataclass

@@ -54,3 +54,20 @@ class CliTests(unittest.TestCase):
         with Fixture() as f:
             code, _, _ = self.invoke(f, ['plan', '--agent', 'codex', '--features', 'bogus'])
             self.assertEqual(code, 2)
+
+    def test_install_unimplemented_selection_and_dry_run_write_nothing(self):
+        with Fixture() as f:
+            before = f.snapshot()
+            for extra in ([], ['--dry-run']):
+                code,out,err = self.invoke(f,['install','--agent','codex','--features','shell','--json',*extra])
+                self.assertEqual(code,2,err)
+                self.assertEqual(f.snapshot(),before)
+                self.assertEqual(json.loads(out)['findings'][-1]['code'],'no_implemented_features')
+
+    def test_uninstall_missing_receipt_writes_nothing(self):
+        with Fixture() as f:
+            before = f.snapshot()
+            code,out,err = self.invoke(f,['uninstall','--features','shell','--json'])
+            self.assertEqual(code,2,err)
+            self.assertEqual(f.snapshot(),before)
+            self.assertEqual(json.loads(out)['findings'][0]['code'],'ownership_unavailable')
