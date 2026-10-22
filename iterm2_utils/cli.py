@@ -100,6 +100,14 @@ def main(argv: list[str] | None = None) -> int:
         status = 0 if 'iterm2' in context.executables else 2
         if args.live:
             findings=live_status(context,Runner())
+            try:
+                receipt=state.load(context.paths.data/'receipt.json')
+            except (OSError,ValueError):
+                receipt=None
+                findings.append(Finding('mcp',None,'ownership_unavailable','conflict','No valid feature selection receipt is available for an MCP live probe.'))
+            if receipt is not None and 'mcp' in receipt.selection.features:
+                from .config.mcp import probe
+                findings.extend(probe(context,Runner(),agent) for agent in sorted(receipt.selection.agents))
             output['findings']=[asdict(f) for f in findings]
             output['python_api']='ready' if any(f.code=='status_api' and f.state=='ready' for f in findings) else 'pending_ui'
             output['runtime_connection']=output['python_api']

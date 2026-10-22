@@ -15,12 +15,12 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from . import state
-from .config import jsonfile, tomlfile, zshrc, preferences
+from .config import jsonfile, tomlfile, zshrc, preferences, mcp
 from .models import SymlinkEdit, FileEdit, PreferenceEdit, RegistrationEdit, Receipt, Outcome, Finding, Plan, Context
 from .commands import Runner
 
-# Task8 may provide an inspect/write adapter; no implicit CLI registration success.
-registration_adapter = None
+# Registration backend uses the transaction Context for every inspection and write.
+registration_adapter = mcp
 
 
 def _finding(code, message, owner='transaction', status='conflict'):
@@ -158,7 +158,7 @@ def _compile(edit):
     return [_resource('file',path,locator,_encode(old),_encode(new),edit.owner)]
 
 
-def _read(r,runner):
+def _read(r,runner,context):
     kind,loc = r['kind'],r['locator']
     if kind == 'symlink':
         path = Path(r['target'])
@@ -172,7 +172,8 @@ def _read(r,runner):
     if kind == 'registration':
         if registration_adapter is None:
             raise ValueError('Registration backend unavailable')
-        return registration_adapter.read(runner,r['target'],loc['name'])
+        value = registration_adapter.inspect(r['target'],loc['name'],context,runner)
+        return _value(value,value is not None)
     return _file_value(r,_bytes(Path(r['target'])))
 
 
@@ -189,8 +190,8 @@ def _file_value(r,raw):
     return _lookup(parsed,loc['pointer'])
 
 
-def _set(r,value,runner, *, expected):
-    if not _same(_read(r,runner),expected):
+def _set(r,value,runner,context, *, expected):
+    if not _same(_read(r,runner,context),expected):
         raise ValueError('Concurrent resource edit')
     kind,loc = r['kind'],r['locator']
     if kind == 'symlink':
@@ -206,7 +207,7 @@ def _set(r,value,runner, *, expected):
             os.unlink(temporary)
             try:
                 os.symlink(value['value'],temporary)
-                if not _same(_read(r,runner),expected):
+                if not _same(_read(r,runner,context),expected):
                     raise ValueError('Concurrent symlink edit during staging')
                 os.replace(temporary,path)
             finally:
@@ -224,7 +225,7 @@ def _set(r,value,runner, *, expected):
     if kind == 'registration':
         if registration_adapter is None:
             raise ValueError('Registration backend unavailable')
-        registration_adapter.write(runner,r['target'],loc['name'],value)
+        registration_adapter.apply(RegistrationEdit(r['target'],loc['name'],expected['value'] if expected['exists'] else None,value['value'] if value['exists'] else None,'mcp'),context,runner)
         return
     path = Path(r['target'])
     raw = _bytes(path)
@@ -252,17 +253,17 @@ def _backup(r,context):
         state.durable_write(directory/(uuid.uuid4().hex+'.bak'),raw)
 
 
-def _inverse(records,runner):
+def _inverse(records,runner,context):
     unresolved,findings = [],[]
     for r in reversed(records):
         try:
-            current = _read(r,runner)
+            current = _read(r,runner,context)
             if _same(current,r['before']):
                 continue
             if not _same(current,r['installed']):
                 raise ValueError('Concurrent change')
-            _set(r,r['before'],runner,expected=r['installed'])
-            if not _same(_read(r,runner),r['before']):
+            _set(r,r['before'],runner,context,expected=r['installed'])
+            if not _same(_read(r,runner,context),r['before']):
                 raise ValueError('Unverified inverse')
         except Exception:
             unresolved.append(r)
@@ -299,7 +300,7 @@ def _recover(context,runner):
         # Initialization crashed before a durable intent; no mutations began.
         shutil.rmtree(journal)
         return []
-    unresolved,findings = _inverse(intent.resources,runner)
+    unresolved,findings = _inverse(intent.resources,runner,context)
     if unresolved:
         intent.resources = unresolved
         state.save(journal/'intent.json',intent)
@@ -315,16 +316,16 @@ def _transaction(changes,result,context,runner):
     findings = []
     try:
         for r in changes:
-            if not _same(_read(r,runner),r['before']):
+            if not _same(_read(r,runner,context),r['before']):
                 raise ValueError('Concurrent change')
             _backup(r,context)
             intent.resources.append(r)
             state.save(journal/'intent.json',intent)
             # Recheck after durable intent/backup, immediately before mutation.
-            if not _same(_read(r,runner),r['before']):
+            if not _same(_read(r,runner,context),r['before']):
                 raise ValueError('Concurrent change')
-            _set(r,r['installed'],runner,expected=r['before'])
-            if not _same(_read(r,runner),r['installed']):
+            _set(r,r['installed'],runner,context,expected=r['before'])
+            if not _same(_read(r,runner,context),r['installed']):
                 raise ValueError('Write verification failed')
         state.save(journal/'result.json',result)
         state.durable_write(journal/'phase',b'commit')
@@ -335,7 +336,7 @@ def _transaction(changes,result,context,runner):
         # A committed intent must be completed, never rolled back.
         if _bytes(journal/'phase') == b'commit':
             return False,[_finding('commit_pending','Receipt commit needs recovery before another mutation.')]
-        unresolved,findings = _inverse(intent.resources,runner)
+        unresolved,findings = _inverse(intent.resources,runner,context)
         findings.insert(0,_finding('transaction_failed','A resource changed or could not be written; transaction was stopped.'))
         if unresolved:
             intent.resources = unresolved
@@ -397,7 +398,7 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                     compiled.append(reference)
             changes = []
             for r in compiled:
-                current = _read(r,runner)
+                current = _read(r,runner,context)
                 own = next((item for item in resources if _identity(item)==_identity(r)),None)
                 if own:
                     if not _same(current,own['installed']):
@@ -411,6 +412,9 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                         changes.append(r)
                         own['installed'] = r['installed']
                 else:
+                    # Reuse an exact existing MCP registration without adopting it.
+                    if r['kind'] == 'registration' and _same(current,r['installed']):
+                        continue
                     if not _same(current,r['before']):
                         raise ValueError('Stale plan')
                     # Existing identical foreign values are not adopted.
@@ -449,7 +453,7 @@ def revert(receipt: Receipt, context: Context, runner: Runner, owners: frozenset
                     r['owners'] = sorted(others)
                     remaining.append(r)
                     continue
-                if not _same(_read(r,runner),r['installed']):
+                if not _same(_read(r,runner,context),r['installed']):
                     remaining.append(r)
                     findings.append(_finding('uninstall_changed','User-changed value was preserved; ownership remains unresolved.',r['owners'][0]))
                     continue

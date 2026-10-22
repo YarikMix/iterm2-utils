@@ -273,9 +273,9 @@ class EngineTests(unittest.TestCase):
         p=self.root/'settings.json';p.write_bytes(b'{"ours":0}')
         read=engine._read
         raced=False
-        def concurrent(resource,runner):
+        def concurrent(resource,runner,context):
             nonlocal raced
-            value=read(resource,runner)
+            value=read(resource,runner,context)
             import inspect
             if inspect.currentframe().f_back.f_code.co_name == '_set' and not raced:
                 raced=True

@@ -78,8 +78,8 @@ def plan(context: Context, selection: Selection) -> Plan:
     changes = ChangeSet([], ui, findings)
     if not any(f.state in {'conflict', 'missing_dependency'} for f in findings):
         from .features.profiles import build
-        from .features import shell, status, notifications, restore
-        for builder in (build, shell.runtime_payload, shell.build, status.build, notifications.build):
+        from .features import shell, status, notifications, restore, mcp
+        for builder in (build, shell.runtime_payload, shell.build, status.build, notifications.build, mcp.build):
             built = builder(context, selected)
             changes.edits.extend(built.edits)
             changes.ui.extend(built.ui)

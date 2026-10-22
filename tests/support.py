@@ -11,7 +11,7 @@ class FakeRunner:
         self.calls = []
         self.responses = {}
 
-    def run(self, argv, *, timeout, stdin=None):
+    def run(self, argv, *, timeout, stdin=None, env=None):
         self.calls.append((argv, timeout, stdin))
         name = Path(argv[0]).name
         return subprocess.CompletedProcess(argv, 0, self.responses.get(name, '1.0 --no-daemon session-status python-api'), '')

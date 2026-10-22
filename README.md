@@ -95,3 +95,19 @@ Codex Alt+Enter is source-verified for exactly 0.163.0 (`insert_newline` default
 binding in `codex-rs/tui/src/keymap.rs`, tag `rust-v0.163.0`); other versions remain
 unverified. A custom Codex TUI keymap can override `insert_newline`, so check the
 selected configuration and target session before relying on this shortcut.
+
+MCP — отдельная опция `mcp`, включаемая только для выбранных агентов.
+Регистрация `iterm2-observe` использует строго
+`uvx --with 'mcp<2' mcp-server-iterm2==0.1.1`. Установите `uvx` самостоятельно:
+сервер требует Python **3.12+**, хотя установщику достаточно Python 3.11+.
+Первый запуск uvx может загрузить пакет и подходящий Python; установщик не
+устанавливает uvx скрытно. Нужны включённый Python API iTerm2 и разрешение пользователя.
+Codex сохраняет регистрацию в `$CODEX_HOME/config.toml` (обычно `~/.codex/config.toml`);
+Claude — в user scope (`~/.claude.json`), через штатный `claude mcp add --scope user`.
+После регистрации перезапустите агент. Совпадающий чужой сервер не становится
+собственностью установщика; несовпадение, отключённый сервер, другой scope или
+неизвестный формат вывода CLI блокируют изменение. Claude `get` может проверять
+доступность сервера; вызов ограничен таймаутом, его вывод не попадает в диагностику.
+Live probe проверяет MCP initialize, список разрешённых инструментов и `list_sessions`;
+он не посылает команды в терминал. Разрешены только чтение и метаданные из
+проверенной версии; неожиданное имя инструмента блокирует готовность.

@@ -45,6 +45,9 @@ class CliTests(unittest.TestCase):
 
     def test_mcp_reports_pending_ui(self):
         with Fixture() as f:
+            uvx=f.bin/'uvx'
+            uvx.write_text('#!/bin/sh\nexit 0\n')
+            uvx.chmod(0o755)
             code, out, _ = self.invoke(f, ['plan', '--agent', 'claude', '--features', 'mcp', '--json'])
             self.assertEqual(code, 3)
             self.assertIn('mcp-server-iterm2==0.1.1', out)
@@ -55,14 +58,14 @@ class CliTests(unittest.TestCase):
             code, _, _ = self.invoke(f, ['plan', '--agent', 'codex', '--features', 'bogus'])
             self.assertEqual(code, 2)
 
-    def test_install_unimplemented_selection_and_dry_run_write_nothing(self):
+    def test_install_missing_mcp_runtime_and_dry_run_write_nothing(self):
         with Fixture() as f:
             before = f.snapshot()
             for extra in ([], ['--dry-run']):
                 code,out,err = self.invoke(f,['install','--agent','codex','--features','mcp','--json',*extra])
                 self.assertEqual(code,2,err)
                 self.assertEqual(f.snapshot(),before)
-                self.assertEqual(json.loads(out)['findings'][-1]['code'],'no_implemented_features')
+                self.assertEqual(json.loads(out)['findings'][-1]['code'],'uvx_missing')
 
     def test_uninstall_missing_receipt_writes_nothing(self):
         with Fixture() as f:
