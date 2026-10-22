@@ -1,113 +1,146 @@
 # iterm2-utils
 
-Read-only discovery and feature selection for iTerm2 with Codex CLI and Claude Code.
-This repository is under development: **installation, update, uninstall and runtime
-integrations are not implemented yet**. A ready finding means the preview found
-its dependencies, not that anything has been installed or tested live.
+Выборочная настройка iTerm2 для Codex CLI и Claude Code: ручное копирование,
+статусы, уведомления, восстановление диалогов, MCP, shell integration и hotkeys.
+Первая версия поддерживает macOS + zsh. Установщик использует Python **3.11+** и
+стандартную библиотеку; корпоративные сервисы и личные файлы автора не нужны.
 
-Requires Python 3.11+; the first release targets macOS and zsh. No third-party
-Python dependencies are needed for the current commands.
+Передайте коллеге одно сообщение для его агента:
+
+> Настрой мне iTerm2 с https://github.com/YarikMix/iterm2-utils. Получи репозиторий,
+> прочитай skills/iterm2-setup/SKILL.md и выполни диагностику. Уточни, какие
+> возможности для установленных у меня Codex/Claude я хочу подключить, затем
+> настрой только выбранное и проверь результат. Нужные ручные шаги объясни.
+
+Агент может прочитать skill непосредственно из checkout: обновление списка skills
+в текущей сессии для этого не требуется. Чтобы сделать skill доступным впоследствии:
+
+```sh
+git clone https://github.com/YarikMix/iterm2-utils.git
+cd iterm2-utils
+python3 --version  # требуется >=3.11
+python3 -m iterm2_utils bootstrap-skill --agent codex --dry-run --json
+python3 -m iterm2_utils bootstrap-skill --agent codex
+```
+
+Выберите `--agent claude` или `--agent both`, если нужны соответствующие копии.
+Bootstrap устанавливает **только skill**, не включает ни одной функции и не
+устанавливает второго агента. Codex получает `${CODEX_HOME:-~/.codex}/skills/iterm2-setup`,
+Claude — `~/.claude/skills/iterm2-setup`, вместе с публичными references. Пути
+берутся из выбранного HOME/CODEX_HOME, а не из фикстур разработчика. Чужая папка
+или изменённый файл вызывают conflict; собственная версия обновляется по отдельному
+receipt в data/bootstrap-skill. Для обновления skill повторите bootstrap после
+обновления checkout. Текущая сессия может потребовать обновления обнаружения skills.
+
+Формат и discovery: [Codex skills](https://developers.openai.com/codex/skills/),
+[Claude skills](https://code.claude.com/docs/en/skills). Codex также поддерживает
+общий каталог `~/.agents/skills` — это альтернативное размещение, не вторая копия
+поверх bootstrap. Для Claude используется его штатный `~/.claude/skills`.
+
+При ручном запуске CLI сначала выберите функции:
 
 ```sh
 python3 -m iterm2_utils doctor --json
 python3 -m iterm2_utils plan --agent codex --features clipboard,shell --json
-python3 -m iterm2_utils plan --agent claude --features shortcuts --shortcuts ctrl-q,resume
+python3 -m iterm2_utils install --agent codex --features clipboard,shell --json
+python3 -m iterm2_utils doctor --json
 ```
 
-`doctor` inspects installed binaries and lists available features. `plan` accepts
-`--agent codex|claude|both`, an explicit comma-separated `--features` selection,
-optional `--shortcuts` and `--parent-profile` (default `Default`). Empty selections
-fail without inspection. Only these two subcommands are currently available.
-Neither command writes settings, installs dependencies, sources `.zshrc`, opens
-iTerm2 or changes permissions. Each executable probe has a five-second timeout.
+`--agent codex|claude|both` задаёт агентов, `--features` — явный CSV-список.
+Пустой/неизвестный выбор отклоняется без инспекции. Для `shortcuts` обязателен
+`--shortcuts ctrl-v-ru,alt-enter,ctrl-q,resume` с нужным подмножеством; `ctrl-q`
+может прервать работу/выйти. `--parent-profile NAME` выбирает существующий
+родительский профиль (по умолчанию Default). План и `--dry-run` не изменяют
+настройки, не открывают GUI, не выполняют shell startup и не меняют hook trust.
+Обычная установка меняет реальные выбранные настройки пользователя.
 
-Features: `clipboard`, `status`, `notifications`, `restore`, `mcp`, `shell`,
-`shortcuts`. Clipboard and restore apply only to Codex; a Claude-only selection
-reports them as unavailable and excludes them from the supported plan selection.
-For `both`, an unavailable Claude finding does not remove the Codex choice.
-Shortcut choices are `ctrl-v-ru`, `alt-enter`, `ctrl-q` and `resume`; select each
-explicitly. Ctrl+Q can interrupt or exit. Missing dependencies are attached to
-individual features. Missing agents are never installed automatically.
+| Функция | Что включается | Зависимости сверх iTerm2/zsh и выбранного агента |
+| --- | --- | --- |
+| `clipboard` | Cmd+C/Ctrl+C EN/RU, без автокопирования при выделении; только Codex | — |
+| `status` | Статус конкретной вкладки, Claude через штатный cc-status | Python, поддерживаемый iTerm2 |
+| `notifications` | Завершение/запрос внимания, переход к своей вкладке | Python, terminal-notifier |
+| `restore` | Выбор диалога Codex для продолжения; только Codex | Python, fzf, Codex --no-daemon |
+| `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
+| `shell` | Штатные отметки команд и навигация zsh в iTerm2 | — |
+| `shortcuts` | Только выбранные сочетания в профиле агента | Проверенная совместимость для Alt+Enter |
 
-Clipboard preview declares `tui.copy_on_select = "never"` and the shared iTerm2
-`CopySelection = false` change. Codex profile matching uses `&codex`, never
-`claude`. MCP is a separate choice with planned pinned dependencies
-`mcp-server-iterm2==0.1.1` and `mcp<2`; it exposes terminal text to the agent.
-Python API authorization and live runtime connections remain unverified and
-require later setup. Peekaboo is detected only, never installed or launched.
+Зависимости выбранных функций нужно перечислить до установки через существующий
+пакетный менеджер. CLI не ставит отсутствующие агенты/Peekaboo автоматически.
+Отсутствие Python 3.11+ — prerequisite установщика, а не повод ставить второго
+агента. Подробности: [features](skills/iterm2-setup/references/features.md).
 
-Exit codes: `0` dependency preview ready; `2` invalid selection, conflict,
-missing dependency or unavailable feature; `3` pending UI or a new session.
-Blocking findings take precedence over pending UI. JSON includes an explicit
-`installation_implemented: false` marker. Public output lists only dependency
-names, parsed versions, capabilities and bounded findings, never raw command
-output, environment variables or foreign MCP configuration.
+`clipboard` задаёт `tui.copy_on_select = "never"` и общую настройку iTerm2
+`CopySelection = false`. Только этот выбор отключает автокопирование. Профиль
+Codex использует `&codex`, никогда `claude`; профиль Claude hotkeys не содержит
+Codex C-bindings. Профили наследуют выбранные цвета/шрифты/keyboard map, не меняют
+Default. Cmd+V остаётся штатной вставкой. Большие объёмы текста могут столкнуться
+с гонкой завершения копирования; задержка вставки и автофокус не устанавливаются.
+Named Codex `[profiles.<name>.tui]` overrides диагностируются отдельно.
 
-Paths respect absolute `ZDOTDIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`,
-`XDG_DATA_HOME`, `XDG_CACHE_HOME`; relative overrides are ignored. Claude settings
-are located at `~/.claude/settings.json`. `ITERM2_APP` selects an explicit app
-bundle (invalid overrides fail closed); otherwise discovery tries
-`/Applications/iTerm.app`, then `~/Applications/iTerm.app`. Info.plist identity
-and bundle executable are validated. iTerm2 itself is never launched. Its
-bundled `it2 --help`, when available, is inspected for supported capabilities.
-Discovery reads native and dynamic iTerm2 profiles and retains only allowlisted
-copy preference values. When clipboard is selected, the planner parses Codex
-TOML to prepare a targeted tui.copy_on_select edit; unrelated configuration values
-are never included in public output.
+MCP — самостоятельная опция: `iterm2-observe` использует ровно
+`uvx --with 'mcp<2' mcp-server-iterm2==0.1.1`. Установщику достаточно Python 3.11+,
+серверу нужен **3.12+**; uvx при первом запуске может загрузить пакет и Python.
+Codex регистрируется в `$CODEX_HOME/config.toml`, Claude — штатным CLI user scope
+в `~/.claude.json`. Чужой/несовпадающий сервер не заменяется; совпадающий чужой
+сервер не становится собственностью пакета. Live probe проверяет initialize,
+allowlist инструментов и list_sessions, не отправляет команды в терминал.
+Неизвестный формат вывода/инструмент блокирует готовность. Вывод чужих settings,
+MCP env и auth не попадает в публичную диагностику.
 
-Validation so far: standard-library unittest fixtures with TemporaryDirectory
-HOME, fake executable files and a fake Runner. No live iTerm2 or agent behavior
-has been verified by these tests. Profile planning checks parent existence,
-conflicting bindings and competing automatic switching rules. Hook trust, live
-MCP authorization and end-to-end behavior still require later validation; preview
-readiness is not acceptance.
+После install прочитайте `findings` и `ui`: запись настроек не доказывает работу.
+`ready` в plan означает готовность плана; успешный checkpoint означает сохранённые
+ресурсы, а живую работу проверяют отдельно. Установка фиксирует доступные функции
+отдельно: ошибка одной не отменяет уже завершённую независимую функцию.
+Peekaboo пригоден только при наличии подключённого разрешённого инструмента в
+текущем агенте; установленный бинарник этого не доказывает. При отсутствии/отказе
+нужен ручной шаг, без osascript или обхода разрешений. Системные диалоги и доверие
+hooks подтверждает человек. Точную навигацию описывает [UI reference](skills/iterm2-setup/references/ui.md):
+Profiles открывает новую вкладку; Session → Edit Session → Use Selected Settings
+применяет профиль к существующей. Агент не перезапускает пользовательскую сессию.
+
+После ручного шага выполните `python3 -m iterm2_utils reconcile --step CODE --json`
+с кодом из `ui`, затем `doctor --live --json` для выбранных runtime/MCP-проверок.
+«Готово» со слов пользователя не снимает pending; неуспешная проверка оставляет его.
+Новые hooks/регистрация могут требовать новой сессии, которую запускает пользователь.
+
+Обновление и удаление через тот же CLI:
+
+```sh
+python3 -m iterm2_utils update --dry-run --json
+python3 -m iterm2_utils update --json
+python3 -m iterm2_utils uninstall --features clipboard --dry-run --json
+python3 -m iterm2_utils uninstall --features clipboard --json
+```
+
+Повторная установка идемпотентна. Update сохраняет выбор из receipt; uninstall
+восстанавливает только неизменённые собственные значения, сохраняет общие ресурсы
+нужные оставшимся функциям и чужие/изменённые записи. Полный backup поверх конфига
+не восстанавливается. Без валидного receipt удаление/обновление не разрешено.
+Распознанный legacy можно принять только явным `--adopt-legacy`; конфликт не
+даёт разрешения переписать произвольную настройку. См. [troubleshooting](skills/iterm2-setup/references/troubleshooting.md).
+
+Пути учитывают абсолютные `ZDOTDIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, `XDG_CACHE_HOME`; относительные overrides игнорируются. Claude
+settings: `~/.claude/settings.json`. Runtime лежит в versioned data/releases со
+стабильным current; receipts/backups отделены от очищаемого cache.
+`ITERM2_APP` задаёт проверяемый app bundle; без него проверяются `/Applications/iTerm.app`
+и `~/Applications/iTerm.app`. iTerm2 не запускается discovery. Exit codes: `0` —
+нет блокеров, `2` — conflict/missing_dependency/unavailable, `3` — pending_ui/new_session.
+
+Совместимость Alt+Enter проверена по исходникам/документации только для Codex
+0.163.0 и Claude Code 2.1.308. Другие версии и custom TUI keymap требуют проверки.
+Версии и происхождение внешнего кода: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+и [sources.lock.json](sources.lock.json).
+
+Проверено разработчиком: unittest на TemporaryDirectory HOME, fake Runner и
+адаптерах — выбор функций, ownership/CAS, update/uninstall, pending/reconcile,
+bootstrap и сохранность чужих данных. Структурный validator проверяет skill и
+references. Это не живая приёмка и не проверка поведения модели: попытка свежего
+изолированного Claude baseline остановилась на отсутствии доступной авторизации.
+Не проверены живые GUI/TCC, hook trust, работа в реальных сессиях и полный путь
+агента с новым skill. Матрица живой приёмки остаётся отдельной проверкой.
 
 ```sh
 python3 -m unittest discover -v
+python3 tools/check_skill.py
 ```
-
-Profile changes are built in `DynamicProfiles/iterm2-utils.json`. They inherit the
-chosen parent and merge its keyboard map; colors, fonts, the default profile and
-normal shell startup are inherited. Codex matches `&codex`; a Claude hotkeys
-profile matches `&claude` and has no Codex C bindings. Clipboard selects bilingual
-physical C mappings, `tui.copy_on_select = "never"` and the shared iTerm2
-`CopySelection = false` setting. Named `[profiles.<name>.tui]` overrides are
-reported because different Codex invocations can use different profiles.
-
-Cmd+V remains native paste. Manual copy does not guarantee completion timing for
-large clipboard payloads; no paste delay or focus action is installed. The
-optional resume shortcut sends `/resume` followed by an actual LF byte. Hotkeys
-alone do not alter copy-on-select. Alt+Enter is omitted with an unavailable
-finding when compatibility for the detected agent version is unverified.
-
-Current Claude documentation describes Option+Enter after enabling Option as
-Meta on macOS: https://code.claude.com/docs/en/interactive-mode. The profile sends
-the equivalent ESC+CR bytes directly. The current documented release is exactly Claude Code 2.1.308
-([release](https://github.com/anthropics/claude-code/releases/tag/v2.1.308),
-published 2026-10-22). Only that exact version is treated as documentation-supported;
-older, future and unknown versions fail closed. Live behavior remains unverified.
-
-The profile-level `Prevent Automatic Profile Switching` flag is checked using
-iTerm2 v3.7.6 source naming. A per-session override is not a global defaults key;
-verify automatic switching in the target live session before accepting setup.
-
-Codex Alt+Enter is source-verified for exactly 0.163.0 (`insert_newline` default
-binding in `codex-rs/tui/src/keymap.rs`, tag `rust-v0.163.0`); other versions remain
-unverified. A custom Codex TUI keymap can override `insert_newline`, so check the
-selected configuration and target session before relying on this shortcut.
-
-MCP — отдельная опция `mcp`, включаемая только для выбранных агентов.
-Регистрация `iterm2-observe` использует строго
-`uvx --with 'mcp<2' mcp-server-iterm2==0.1.1`. Установите `uvx` самостоятельно:
-сервер требует Python **3.12+**, хотя установщику достаточно Python 3.11+.
-Первый запуск uvx может загрузить пакет и подходящий Python; установщик не
-устанавливает uvx скрытно. Нужны включённый Python API iTerm2 и разрешение пользователя.
-Codex сохраняет регистрацию в `$CODEX_HOME/config.toml` (обычно `~/.codex/config.toml`);
-Claude — в user scope (`~/.claude.json`), через штатный `claude mcp add --scope user`.
-После регистрации перезапустите агент. Совпадающий чужой сервер не становится
-собственностью установщика; несовпадение, отключённый сервер, другой scope или
-неизвестный формат вывода CLI блокируют изменение. Claude `get` может проверять
-доступность сервера; вызов ограничен таймаутом, его вывод не попадает в диагностику.
-Live probe проверяет MCP initialize, список разрешённых инструментов и `list_sessions`;
-он не посылает команды в терминал. Разрешены только чтение и метаданные из
-проверенной версии; неожиданное имя инструмента блокирует готовность.

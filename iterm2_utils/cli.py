@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict
 from .commands import Runner
 from .discovery import discover, resolve_paths, live_status
-from .models import Selection, Finding
+from .models import Selection, Finding, Context
 from . import lifecycle, migration, state
 from .planner import AGENTS, FEATURES, SHORTCUTS, plan
 
@@ -51,6 +51,10 @@ def main(argv=None):
             command_parser.add_argument('--live',action='store_true')
         elif command == 'reconcile':
             command_parser.add_argument('--step',required=True)
+    bootstrap = sub.add_parser('bootstrap-skill', help='Copy only the public setup skill; select no terminal features.')
+    bootstrap.add_argument('--agent', choices=['codex','claude','both'], required=True)
+    bootstrap.add_argument('--dry-run', action='store_true')
+    bootstrap.add_argument('--json', action='store_true')
     try:
         args = parser.parse_args(argv)
     except SystemExit as error:
@@ -66,7 +70,17 @@ def main(argv=None):
             return 2
     runner = Runner()
     paths = resolve_paths()
-    if args.command in {'plan','install'}:
+    if args.command == 'bootstrap-skill':
+        from . import skill_install
+        agents = AGENTS if args.agent == 'both' else frozenset({args.agent})
+        # Bootstrap reads only its own bundle/receipt, never agent settings or binaries.
+        context = Context(paths, {}, {}, frozenset(), {}, {})
+        findings = skill_install.install(context, agents, runner, dry_run=args.dry_run)
+        output = dict(mode='bootstrap_preview' if args.dry_run else 'bootstrap_skill',
+                      selection=dict(agents=sorted(agents), features=[], shortcuts=[], parent_profile='Default'),
+                      findings=[asdict(f) for f in findings])
+        status = _exit(findings)
+    elif args.command in {'plan','install'}:
         agents = AGENTS if args.agent=='both' else frozenset({args.agent})
         context = discover(paths,runner,agents=agents)
         selection = Selection(agents,features,shortcuts,args.parent_profile,args.adopt_legacy)
