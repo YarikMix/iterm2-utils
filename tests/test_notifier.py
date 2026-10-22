@@ -94,3 +94,26 @@ class NotifierTests(unittest.TestCase):
             self.assertTrue(marker.exists())
             argv=json.loads(marker.read_text());self.assertIn(UUID,argv[argv.index('-execute')+1]);self.assertNotIn('SECRET',marker.read_text())
             self.assertTrue((f.home/'cache'/('codex-'+UUID+'.json')).exists())
+    def test_distinct_concurrent_questions_and_duplicate_retransmission(self):
+        state,_=notifier.transition({},self.event('UserPromptSubmit'))
+        seen=[]
+        for question in ['PRIVATE_ONE','PRIVATE_ONE','PRIVATE_TWO']:
+            state,notice=notifier.transition(state,self.event('PreToolUse',tool_name='request_user_input',tool_input={'question':question}))
+            if notice:seen.append(notice)
+        self.assertEqual([n.kind for n in seen],['input','input'])
+        self.assertNotIn('PRIVATE',str(state))
+    def test_same_question_after_resolution_is_new_request(self):
+        state,_=notifier.transition({},self.event('UserPromptSubmit'))
+        for name in ['PreToolUse','PostToolUse','PreToolUse']:
+            state,notice=notifier.transition(state,self.event(name,tool_name='request_user_input',tool_input={'question':'PRIVATE'}))
+            self.assertEqual(notice.kind if notice else None,'input' if name=='PreToolUse' else None)
+    def test_unmatched_tool_resolution_keeps_other_question_claims(self):
+        state,_=notifier.transition({},self.event('UserPromptSubmit'))
+        for question in ('one','two'):
+            state,notice=notifier.transition(state,self.event('PreToolUse',tool_name='request_user_input',tool_input={'question':question}))
+            self.assertIsNotNone(notice)
+        state,_=notifier.transition(state,self.event('PostToolUse',tool_name='request_user_input',tool_input={'question':'unrelated'}))
+        state,notice=notifier.transition(state,self.event('PreToolUse',tool_name='request_user_input',tool_input={'question':'one'}));self.assertIsNone(notice)
+        state,_=notifier.transition(state,self.event('PostToolUse',tool_name='request_user_input',tool_input={'question':'one'}))
+        state,notice=notifier.transition(state,self.event('PreToolUse',tool_name='request_user_input',tool_input={'question':'two'}));self.assertIsNone(notice)
+        state,notice=notifier.transition(state,self.event('PreToolUse',tool_name='request_user_input',tool_input={'question':'one'}));self.assertEqual(notice.kind,'input')

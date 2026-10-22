@@ -40,3 +40,15 @@ The mapping follows the public pinned codex-status base e749ff64a6b34252e9f41c51
 THIRD_PARTY_NOTICES.md and the newer locally installed notifications.py implementation. Its
 local removal of PermissionRequest banners is intentional; a public SHA for that
 newer local snapshot is unavailable. Artwork/title extraction is not transferred.
+
+Attention deduplication is per request identity. Codex uses its opaque tool_key
+and removes only the matching claim after PostToolUse. Different concurrent
+questions each notify; retransmission of the same request is suppressed.
+Claude's declared Notification schema has no request ID. Its opaque identity is
+SHA-256(notification_type,title,message); raw fields never persist. Distinct
+messages notify separately. PostToolUse and PostToolUseFailure reset only
+attention claims, allowing a later same-text request to notify again without
+resetting completion for the prompt. Identical parallel Claude requests with no
+intervening resolution cannot be distinguished from retransmission and are
+suppressed. The fingerprint is for transient attention identity, not content
+storage. Schema evidence: official SDK NotificationHookInput at the URL above.

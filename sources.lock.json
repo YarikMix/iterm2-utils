@@ -57,7 +57,7 @@
       "path": "runtime/notifier.py",
       "url": "https://github.com/YarikMix/iterm2-status/blob/e749ff64a6b34252e9f41c5103f4b46831691443/scripts/notifications.py",
       "ref": "e749ff64a6b34252e9f41c5103f4b46831691443",
-      "sha256": "470ae8c862ce93cfea7e9b67c46983e6aed31ce500065fff6d66621896fd141b",
+      "sha256": "4c38bb24f6644f3e40deff0aa51b96b597055c59a784ddcdb8aefc49c9468236",
       "local_snapshot_sha256": "ec1f120f88e81c3b9fa33048d0ca022103c8f7437ee8a4d7368948c908ab39c5",
       "license": "MIT",
       "transformation": "Adapter informed by newer installed local snapshot (public SHA unavailable): retain removed PermissionRequest banners, independent Claude mapping, exact UUID focus and bounded observational delivery"

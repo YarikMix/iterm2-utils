@@ -4,7 +4,7 @@ import shlex
 from ..models import ChangeSet,FileEdit,Finding
 from ..config import tomlfile
 
-CLAUDE_EVENTS=('SessionStart','UserPromptSubmit','Notification','Stop','StopFailure','SubagentStop','SessionEnd')
+CLAUDE_EVENTS=('SessionStart','UserPromptSubmit','Notification','Stop','StopFailure','SubagentStop','SessionEnd','PostToolUse','PostToolUseFailure')
 MATCHER='permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog'
 
 def runtime_settings(context):

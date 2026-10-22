@@ -40,4 +40,5 @@ class FeatureTests(unittest.TestCase):
             edit=next(e for e in changes.edits if e.path==context.paths.claude_settings)
             hooks=json.loads(edit.after)['hooks']
             self.assertEqual(set(hooks),set(notifications.CLAUDE_EVENTS))
+            self.assertTrue({'PostToolUse','PostToolUseFailure'} <= set(hooks))
             self.assertEqual(hooks['Notification'][0]['matcher'],notifications.MATCHER)

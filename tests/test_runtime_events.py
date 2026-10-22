@@ -115,3 +115,15 @@ class RuntimeTests(unittest.TestCase):
                     elapsed=time.monotonic()-start
                     self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
                     self.assertLess(elapsed,3)
+    def test_claude_attention_cache_keeps_only_opaque_identity(self):
+        with TemporaryDirectory() as tmp:
+            runner=FakeRunner();runner.responses['osascript']='false'
+            settings={'notifications':True,'status':False,'notification_cache':tmp,'terminal_notifier':'/fake/notifier','it2':'/fake/it2','osascript':'/fake/osascript'}
+            for name,message in [('Notification','PRIVATE_ONE'),('Notification','PRIVATE_ONE'),('Notification','PRIVATE_TWO')]:
+                event=events.normalize(dict(session_id='s',hook_event_name=name,notification_type='permission_prompt',title='PRIVATE_TITLE',message=message,prompt='PRIVATE_PROMPT',tool_input={'command':'PRIVATE_COMMAND'}),'claude',UUID)
+                hook.dispatch(event,settings,runner)
+            state=next(Path(tmp).glob('*.json')).read_text()
+            self.assertNotIn('PRIVATE',state)
+            self.assertTrue(set(json.loads(state)).isdisjoint({'title','message','prompt','tool_input'}))
+            self.assertEqual(len(runner.calls),4)
+            self.assertFalse(any('set-status' in c[0] for c in runner.calls))

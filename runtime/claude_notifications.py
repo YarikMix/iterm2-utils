@@ -22,14 +22,19 @@ def transition(previous,event):
         return state,None
     if state.get('ended'):
         return state,None
-    kind=None
+    # PostToolUse/Failure confirm that the previous permission interaction is
+    # over. They never reset completion identity for the current prompt.
+    if name in {'PostToolUse','PostToolUseFailure'}:
+        state.pop('attention_claims',None)
+        return state,None
     if name=='Notification' and event.notification_type in ATTENTION:
-        kind='attention'
+        key=event.notification_key or event.notification_type
+        claims=list(state.get('attention_claims',[]))
+        if key in claims:
+            return state,None
+        state['attention_claims']=[*claims,key]
+        return state,'attention'
     if name=='Stop' and state.get('working') and not event.background_running and not event.stop_hook_active:
         state['working']=False
-        kind='complete'
-    key=(state.get('turn','0')+':'+(event.notification_type or kind or ''))
-    if kind and key not in state.get('claimed',[]):
-        state['claimed']=[*state.get('claimed',[]),key]
-        return state,kind
+        return state,'complete'
     return state,None

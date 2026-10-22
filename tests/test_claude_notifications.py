@@ -37,3 +37,25 @@ class ClaudeTests(unittest.TestCase):
         self.assertIsNone(notice)
         state,notice=notifier.transition(state,self.event('Stop'))
         self.assertEqual(notice.kind,'complete')
+    def test_distinct_permissions_and_duplicate_retransmission(self):
+        state,_=notifier.transition({},self.event('UserPromptSubmit'))
+        seen=[]
+        for message in ['PRIVATE_ONE','PRIVATE_ONE','PRIVATE_TWO']:
+            state,notice=notifier.transition(state,self.event('Notification',notification_type='permission_prompt',title='Permission',message=message))
+            if notice:seen.append(notice)
+        self.assertEqual([n.kind for n in seen],['attention','attention'])
+        self.assertNotIn('PRIVATE',str(state))
+    def test_same_permission_after_resolution_is_new_request(self):
+        for boundary in ('PostToolUse','PostToolUseFailure'):
+            state,_=notifier.transition({},self.event('UserPromptSubmit'))
+            seen=[]
+            for name in ['Notification','Notification',boundary,'Notification','Notification']:
+                state,notice=notifier.transition(state,self.event(name,notification_type='permission_prompt',title='Permission',message='PRIVATE'))
+                if notice:seen.append(notice.kind)
+            self.assertEqual(seen,['attention','attention'])
+            self.assertNotIn('PRIVATE',str(state))
+    def test_resolution_does_not_reset_completion(self):
+        state,_=notifier.transition({},self.event('UserPromptSubmit'))
+        state,notice=notifier.transition(state,self.event('Stop'));self.assertEqual(notice.kind,'complete')
+        for name in ('PostToolUse','PostToolUseFailure','Stop'):
+            state,notice=notifier.transition(state,self.event(name));self.assertIsNone(notice)

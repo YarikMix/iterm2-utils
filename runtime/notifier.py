@@ -60,7 +60,7 @@ def transition(previous,event):
         # Upstream pending-work semantics: a main Stop can precede subagent idle.
         reset=(previous.get('session_id')!=event.session_id or event.name in {'UserPromptSubmit','Interrupt','SessionEnd'} or event.name=='SessionStart' and event.source!='compact')
         if reset:
-            state.pop('claimed',None);state.pop('completion_pending',None)
+            state.pop('claimed',None);state.pop('input_claims',None);state.pop('completion_pending',None)
         if event.name=='Stop' and previous.get('working'):
             state['completion_pending']=True
         kind=None
@@ -68,12 +68,22 @@ def transition(previous,event):
             kind='input'
         elif state['status']=='idle' and state.get('completion_pending'):
             kind='complete';state.pop('completion_pending',None)
-        if kind and state.get('claimed')==kind:
-            kind=None
-        elif kind:
-            state['claimed']=kind
-        elif state['status']=='working':
-            state.pop('claimed',None)
+        # Each waiting request owns its claim. Parallel questions of the same
+        # kind must still notify, while retransmission of one question cannot.
+        claims=list(state.get('input_claims',[]))
+        if event.name=='PostToolUse' and event.tool_key in claims:
+            claims.remove(event.tool_key)
+        if kind=='input':
+            if event.tool_key in claims:
+                kind=None
+            else:
+                claims.append(event.tool_key)
+        elif kind=='complete':
+            if state.get('claimed')=='complete':
+                kind=None
+            else:
+                state['claimed']='complete'
+        state['input_claims']=claims
         # Cache no project/detail strings: these are upstream presentation fields.
         state.pop('project',None);state.pop('detail',None)
     if not kind:
