@@ -16,13 +16,12 @@ acceptance claim.
 | Restore | Bundled Codex restore port, fzf dependency | Fixture lifecycle/transcript selection only; real dialogs unverified |
 
 Local checks ran on Darwin 25.6.0 arm64, Python 3.13.7 and zsh 5.9.
-[CI run 39866832243](https://github.com/YarikMix/iterm2-utils/actions/runs/39866832243)
-passed both macOS jobs; the 3.x job used Python 3.14.8 and passed 321 Python tests,
-37 restore zsh cases, and source/skill/export/build checks. Both Linux jobs failed
-because the synthetic macOS fixture inherited the runner's platform. The fixture
-now selects its platform explicitly; a subsequent remote run must confirm the
-correction. This evidence does not establish Linux product support or live macOS
-acceptance.
+The [CI matrix](https://github.com/YarikMix/iterm2-utils/actions/workflows/test.yml)
+runs isolated fixtures and export checks on Linux and macOS with Python 3.11 and
+current stable (3.x); macOS also runs explicit zsh contracts. Each run logs its
+resolved Python version and, on macOS, zsh version. The verified macOS 3.x run
+used Python 3.14.8. Consult the linked workflow for current job results. These
+fixture checks do not establish Linux product support or live macOS acceptance.
 
 Automated acceptance uses TemporaryDirectory HOME, fake app bundles, preference
 adapters and CLI runners. All seven feature IDs can be selected explicitly;
