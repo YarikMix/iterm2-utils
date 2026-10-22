@@ -1,0 +1,118 @@
+"""Pure builders for installed, checkout-independent zsh/runtime resources.
+
+runtime/ maps directly to current/; vendor/ maps to current/vendor/.
+Future hook.py and codex_restore/ modules belong under runtime/ and may use
+sibling imports through their installed script directory. No checkout sys.path.
+"""
+import hashlib
+import os
+import re
+import shlex
+from pathlib import Path
+from .. import __version__
+from ..config import zshrc
+from ..models import ChangeSet, Context, Selection, FileEdit, SymlinkEdit, Finding
+
+OWNER = 'shared:shell'
+RUNTIME_OWNER = 'shared:runtime'
+DEPENDENTS = frozenset({'status', 'notifications', 'restore'})
+
+
+def _dispatcher(selection):
+    return 'codex' in selection.agents and bool(selection.features & DEPENDENTS)
+
+
+def _consumers(selection):
+    return (selection.features & (DEPENDENTS | {'shell'}))
+
+
+def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
+    """Copy validated source trees before switching the stable current symlink.
+
+    Only runtime Python/zsh, vendor Python/zsh/license and package helpers are
+    eligible. Mutable caches/configuration never belong in the release tree.
+    """
+    changes = ChangeSet([], [], [])
+    consumers = _consumers(selection)
+    if not consumers:
+        return changes
+    files = {}
+    for tree in ('runtime', 'vendor'):
+        root = context.paths.repo / tree
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError('Missing runtime source tree')
+        for source in sorted(root.rglob('*')):
+            if source.is_symlink():
+                raise ValueError('Runtime source symlinks are not allowed')
+            if not source.is_file() or '__pycache__' in source.parts:
+                continue
+            if source.suffix not in {'.py', '.zsh'} and source.name not in {'LICENSE', 'NOTICE'}:
+                continue
+            relative = source.relative_to(root)
+            target = relative if tree == 'runtime' else Path('vendor') / relative
+            files[target] = source.read_bytes()
+    if Path('codex.zsh') not in files or Path('vendor/shell_integration/iterm2_shell_integration.zsh') not in files:
+        raise ValueError('Incomplete runtime payload')
+    digest = hashlib.sha256()
+    for name, content in sorted(files.items()):
+        digest.update(str(name).encode()+b'\0'+content+b'\0')
+    release = context.paths.data / 'releases' / (__version__+'-'+digest.hexdigest()[:20])
+    # All reads/validation complete before any edits are emitted; engine applies
+    # file edits in order and atomically switches the explicit symlink last.
+    for name, content in sorted(files.items()):
+        path = release / name
+        before = path.read_bytes() if path.exists() else None
+        if before is not None and before != content:
+            raise ValueError('Immutable release content changed')
+        changes.edits.append(FileEdit(path,before,content,0o600,RUNTIME_OWNER))
+    current = context.paths.data / 'current'
+    if current.exists() and not current.is_symlink():
+        raise ValueError('Runtime current must be a symlink')
+    changes.edits.append(SymlinkEdit(current,os.readlink(current) if current.is_symlink() else None,str(release),RUNTIME_OWNER))
+    changes.consumers[RUNTIME_OWNER] = frozenset(consumers)
+    return changes
+
+
+def build(context: Context, selection: Selection) -> ChangeSet:
+    changes = ChangeSet([], [], [])
+    marks = 'shell' in selection.features
+    dispatch = _dispatcher(selection)
+    if not marks and not dispatch:
+        return changes
+    path = context.paths.zshrc
+    before = path.read_bytes() if path.exists() else None
+    try:
+        managed = zshrc.blocks(before or b'')
+        foreign = before or b''
+        for name in managed:
+            foreign = zshrc.block(foreign,name,None)
+        text = foreign.decode()
+        # Known old managed wrappers must be deliberately adopted, never nested.
+        if re.search(r'(?m)^\s*#.*(?:codex.*(?:wrapper|no.daemon)|(?:>>>|BEGIN).*codex)', text, re.I):
+            raise ValueError('Legacy managed Codex block requires migration')
+        if dispatch and re.search(r'(?m)^\s*(?:alias\s+codex\s*=|(?:function\s+)?codex\s*\(\s*\)|function\s+codex\b)', text):
+            raise ValueError('Existing Codex alias or function')
+        reuse = marks and bool(re.search(r'(?m)^\s*(?:source|\.)\s+[^\n]*iterm2_shell_integration',text))
+        lines = []
+        current = context.paths.data / 'current'
+        quote = lambda value: shlex.quote(str(value))
+        if marks and not reuse:
+            lines.extend(['if [[ ${TERM_PROGRAM-} == iTerm.app && -z ${ITERM_SHELL_INTEGRATION_INSTALLED-} ]]; then',
+                          '  source '+quote(current/'vendor/shell_integration/iterm2_shell_integration.zsh'), 'fi'])
+        if reuse:
+            changes.findings.append(Finding('shell',None,'existing_integration','ready','Existing shell integration is reused.'))
+        if dispatch:
+            lines.extend(['typeset -g ITERM2_UTILS_PYTHON='+quote(context.executables['python3']),
+                          'typeset -g ITERM2_UTILS_CODEX_NO_DAEMON='+('1' if 'codex:no-daemon' in context.capabilities else '0'),
+                          'source '+quote(current/'codex.zsh')])
+            if 'restore' in selection.features:
+                restore = quote(current/'codex_restore/codex-resume.zsh')
+                lines.append('[[ ! -f '+restore+' ]] || source '+restore)
+        # A no-op existing integration needs no ownership claim.
+        if lines or 'root' in managed:
+            after = zshrc.block(before or b'','root','\n'.join(lines) if lines else None)
+            changes.edits.append(FileEdit(path,before,after,0o600,OWNER))
+            changes.consumers[OWNER] = frozenset((selection.features & DEPENDENTS if dispatch else frozenset()) | ({'shell'} if marks else set()))
+    except (ValueError, UnicodeError):
+        changes.findings.append(Finding('shell',None,'shell_conflict','conflict','Shell startup contains conflicting or ambiguous managed integration; explicit migration is required.'))
+    return changes

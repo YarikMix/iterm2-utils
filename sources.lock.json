@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "vendor/shell_integration/iterm2_shell_integration.zsh",
+      "url": "https://raw.githubusercontent.com/gnachman/iTerm2/v3.7.6/Resources/shell_integration/iterm2_shell_integration.zsh",
+      "ref": "v3.7.6",
+      "sha256": "785f18e203c29c8d06a9cd374d0831748909f5c6143175287817764681f840a7",
+      "license": "GPL-2.0-or-later",
+      "blob": "efb57443f879239795411bcf076f38b4d1008b0f"
+    },
+    {
+      "path": "vendor/shell_integration/LICENSE",
+      "url": "https://raw.githubusercontent.com/gnachman/iTerm2/v3.7.6/LICENSE",
+      "ref": "v3.7.6",
+      "sha256": "990f1da86e9f58355fc82b5cd486b70aaeb53ae0ba9722424a0270ff0d458de9",
+      "license": "GPL-2.0",
+      "blob": "a8613c7ec4d6bc4bbde06b8178aada340803abd3"
+    }
+  ]
+}

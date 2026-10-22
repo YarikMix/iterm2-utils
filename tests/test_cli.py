@@ -59,7 +59,7 @@ class CliTests(unittest.TestCase):
         with Fixture() as f:
             before = f.snapshot()
             for extra in ([], ['--dry-run']):
-                code,out,err = self.invoke(f,['install','--agent','codex','--features','shell','--json',*extra])
+                code,out,err = self.invoke(f,['install','--agent','codex','--features','mcp','--json',*extra])
                 self.assertEqual(code,2,err)
                 self.assertEqual(f.snapshot(),before)
                 self.assertEqual(json.loads(out)['findings'][-1]['code'],'no_implemented_features')

@@ -58,7 +58,7 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
             add(feature, agent, 'preview', 'ready', DESCRIPTIONS[feature])
             if feature == 'mcp':
                 add(feature, agent, 'python_api', 'pending_ui', 'Verify iTerm2 Settings > General > Magic > Enable Python API; connection and authorization are not yet verified.')
-            if feature in {'status', 'restore'} and agent == 'codex' and 'codex:no-daemon' not in context.capabilities:
+            if feature == 'restore' and agent == 'codex' and 'codex:no-daemon' not in context.capabilities:
                 add(feature, agent, 'no_daemon', 'unavailable', 'Codex --no-daemon capability was not detected; hook tab identity cannot be guaranteed.')
     return findings
 
@@ -76,9 +76,11 @@ def plan(context: Context, selection: Selection) -> Plan:
     changes = ChangeSet([], ui, findings)
     if not any(f.state in {'conflict', 'missing_dependency'} for f in findings):
         from .features.profiles import build
-        built = build(context, selected)
-        changes.edits.extend(built.edits)
-        changes.ui.extend(built.ui)
-        changes.findings.extend(built.findings)
-        changes.consumers.update(built.consumers)
+        from .features import shell
+        for builder in (build, shell.runtime_payload, shell.build):
+            built = builder(context, selected)
+            changes.edits.extend(built.edits)
+            changes.ui.extend(built.ui)
+            changes.findings.extend(built.findings)
+            changes.consumers.update(built.consumers)
     return Plan(selected, changes, fingerprint)

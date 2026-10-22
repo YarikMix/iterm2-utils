@@ -21,7 +21,11 @@ class SelectionTests(unittest.TestCase):
             self.assertNotIn('clipboard', result.selection.features)
             self.assertIn('shell', result.selection.features)
             self.assertTrue(any(x.feature == 'clipboard' and x.state == 'unavailable' for x in result.changes.findings))
-            self.assertEqual(result.changes.edits, [])
+            self.assertTrue(result.changes.edits)
+            self.assertFalse(any(e.owner == 'clipboard' for e in result.changes.edits))
+            startup=next(e.after for e in result.changes.edits if e.path==context.paths.zshrc)
+            self.assertNotIn(b'codex.zsh',startup)
+            self.assertIn(b'shell_integration',startup)
 
     def test_shortcuts_require_explicit_valid_selection(self):
         with Fixture() as f:
