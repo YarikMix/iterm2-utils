@@ -73,6 +73,8 @@ class NotifierTests(unittest.TestCase):
             repo=f.home/'source';repo.mkdir()
             for tree in ('runtime','vendor'):
                 shutil.copytree(context.paths.repo/tree,repo/tree,ignore=shutil.ignore_patterns('__pycache__'))
+            for name in ('LICENSE','THIRD_PARTY_NOTICES.md'):
+                shutil.copy2(context.paths.repo/name,repo/name)
             context=replace(context,paths=replace(context.paths,repo=repo))
             payload=runtime_payload(context,Selection(frozenset({'codex'}),frozenset({'notifications'}),frozenset(),'Default'))
             for edit in payload.edits:

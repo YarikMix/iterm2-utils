@@ -1,5 +1,8 @@
 # iterm2-utils
 
+**v0.1.0-beta.1** — публичная beta для macOS + zsh.
+[Матрица совместимости и непроверенные live-сценарии](docs/compatibility.md).
+
 Выборочная настройка iTerm2 для Codex CLI и Claude Code: ручное копирование,
 статусы, уведомления, восстановление диалогов, MCP, shell integration и hotkeys.
 Первая версия поддерживает macOS + zsh. Установщик использует Python **3.11+** и
@@ -138,9 +141,23 @@ bootstrap и сохранность чужих данных. Структурн�
 references. Это не живая приёмка и не проверка поведения модели: попытка свежего
 изолированного Claude baseline остановилась на отсутствии доступной авторизации.
 Не проверены живые GUI/TCC, hook trust, работа в реальных сессиях и полный путь
-агента с новым skill. Матрица живой приёмки остаётся отдельной проверкой.
+агента с новым skill. Живые сценарии перечислены как **непроверенные** в [beta-матрице](docs/compatibility.md).
 
 ```sh
-python3 -m unittest discover -v
+python3 -m unittest discover -s tests -t . -v
+/bin/zsh tests/test_codex_shell.zsh
+/bin/zsh tests/restore/test_codex.zsh
+python3 tools/check_sources.py
 python3 tools/check_skill.py
+python3 tools/check_export.py
+python3 tools/build_release.py --destination dist
 ```
+
+Beta-архив содержит явный список исходников, runtime, skill, проверок и лицензий;
+локальные настройки, fixtures с состоянием, история, receipts и auth не входят.
+SHA-256 файл рядом с архивом ссылается только на имя ассета: после скачивания
+проверьте `shasum -a 256 -c iterm2-utils-v0.1.0-beta.1.tar.gz.sha256`.
+Для запуска распакуйте архив и перейдите в `iterm2-utils-v0.1.0-beta.1`;
+команды CLI и bootstrap такие же, как из checkout. Подключённый runtime после
+установки не зависит от исходного checkout. Лицензии: [MIT](LICENSE) для кода
+пакета и [отдельные условия vendored-компонентов](THIRD_PARTY_NOTICES.md).

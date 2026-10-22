@@ -30,7 +30,8 @@ def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
     """Copy validated source trees before switching the stable current symlink.
 
     Only runtime Python/zsh, vendor Python/zsh/license and package helpers are
-    eligible. Mutable caches/configuration never belong in the release tree.
+    eligible, together with root license/attribution. Mutable caches/configuration
+    never belong in the release tree.
     """
     changes = ChangeSet([], [], [])
     consumers = _consumers(selection)
@@ -53,6 +54,11 @@ def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
             files[target] = source.read_bytes()
     if Path('codex.zsh') not in files or Path('vendor/shell_integration/iterm2_shell_integration.zsh') not in files:
         raise ValueError('Incomplete runtime payload')
+    for name in ('LICENSE', 'THIRD_PARTY_NOTICES.md'):
+        source = context.paths.repo/name
+        if source.is_symlink() or not source.is_file():
+            raise ValueError('Missing runtime license or attribution')
+        files[Path(name)] = source.read_bytes()
     digest = hashlib.sha256()
     for name, content in sorted(files.items()):
         digest.update(str(name).encode()+b'\0'+content+b'\0')

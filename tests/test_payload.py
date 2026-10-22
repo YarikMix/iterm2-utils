@@ -10,6 +10,8 @@ class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
         checkout=self.root/'checkout'; checkout.mkdir()
         for name in ('runtime','vendor'):
             shutil.copytree(self.context.paths.repo/name,checkout/name)
+        for name in ('LICENSE','THIRD_PARTY_NOTICES.md'):
+            shutil.copy2(self.context.paths.repo/name,checkout/name)
         self.context.paths=replace(self.context.paths,repo=checkout)
         changes=runtime_payload(self.context,self.selection(('status',)))
         for edit in changes.edits:
@@ -28,6 +30,8 @@ class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
         checkout=self.root/'checkout'; checkout.mkdir()
         for name in ('runtime','vendor'):
             shutil.copytree(self.context.paths.repo/name,checkout/name)
+        for name in ('LICENSE','THIRD_PARTY_NOTICES.md'):
+            shutil.copy2(self.context.paths.repo/name,checkout/name)
         self.context.paths=replace(self.context.paths,repo=checkout)
         first=runtime_payload(self.context,self.selection())
         (checkout/'runtime/new_helper.py').write_text('VALUE = 42\n')
@@ -41,5 +45,7 @@ class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
         for name in ('runtime','vendor'):
             shutil.copytree(self.context.paths.repo/name,checkout/name)
         (checkout/'runtime/foreign.py').symlink_to('/not-read')
+        for name in ('LICENSE','THIRD_PARTY_NOTICES.md'):
+            shutil.copy2(self.context.paths.repo/name,checkout/name)
         self.context.paths=replace(self.context.paths,repo=checkout)
         with self.assertRaises(ValueError): runtime_payload(self.context,self.selection())

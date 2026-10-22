@@ -1,0 +1,36 @@
+name: tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  fixtures:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ['3.11', '3.x']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Linux zsh prerequisite for Python shell fixtures
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Resolve versions
+        run: python3 --version
+      - name: Unit and isolated export tests
+        run: python3 -m unittest discover -s tests -t . -v
+      - name: zsh fixture contracts
+        if: runner.os == 'macOS'
+        run: |
+          /bin/zsh --version
+          /bin/zsh tests/test_codex_shell.zsh
+          /bin/zsh tests/restore/test_codex.zsh
+      - name: Validate sources, skill and public export
+        run: |
+          python3 tools/check_sources.py
+          python3 tools/check_skill.py
+          python3 tools/check_export.py
+          python3 tools/build_release.py --destination dist

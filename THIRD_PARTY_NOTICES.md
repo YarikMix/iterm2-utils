@@ -41,8 +41,9 @@ based on the official Anthropic hooks and Python SDK schemas.
 module from agent-utils, subtree commit
 `15f225cb4ac15abb7f95f87cbddc7406ba0ba7f9`, author y.mihalev.
 The standalone installer and its test are excluded; common feature builders
-replace installation. Source did not include a separate license declaration
-in this subtree; no license is inferred from other private repository files.
+replace installation. The legacy source subtree had no separate license declaration. The bundled port
+is distributed by its author under this repository's MIT license; this does not
+assert a license for the legacy repository. Source provenance is preserved.
 The source runtime contracts, lifecycle timeouts and behavioral vectors are
 preserved. Test imports/entry paths are relocated; iTerm process identification
 accepts the selected installed app path. An uncertain tab-create result now
