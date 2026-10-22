@@ -82,15 +82,17 @@ def build(context: Context, selection: Selection) -> ChangeSet:
     path = context.paths.zshrc
     before = path.read_bytes() if path.exists() else None
     try:
-        managed = zshrc.blocks(before or b'')
-        foreign = before or b''
+        from .. import migration
+        base = migration.shell_before(context,selection,before) if dispatch else (before or b'')
+        managed = zshrc.blocks(base)
+        foreign = base
         for name in managed:
             foreign = zshrc.block(foreign,name,None)
         text = foreign.decode()
         # Known old managed wrappers must be deliberately adopted, never nested.
         if re.search(r'(?m)^\s*#.*(?:codex.*(?:wrapper|no.daemon)|(?:>>>|BEGIN).*codex)', text, re.I):
             raise ValueError('Legacy managed Codex block requires migration')
-        if dispatch and re.search(r'(?m)^\s*(?:alias\s+codex\s*=|(?:function\s+)?codex\s*\(\s*\)|function\s+codex\b)', text):
+        if dispatch and re.search(r'(?m)^\s*(?:alias(?:\s+-\S+)*\s+codex\s*=|(?:function\s+)?codex\s*\(\s*\)|function\s+codex\b)', text):
             raise ValueError('Existing Codex alias or function')
         reuse = marks and bool(re.search(r'(?m)^\s*(?:source|\.)\s+[^\n]*iterm2_shell_integration',text))
         lines = []
@@ -115,7 +117,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
                 lines.append('[[ ! -f '+restore+' ]] || source '+restore)
         # A no-op existing integration needs no ownership claim.
         if lines or 'root' in managed:
-            after = zshrc.block(before or b'','root','\n'.join(lines) if lines else None)
+            after = zshrc.block(base,'root','\n'.join(lines) if lines else None)
             changes.edits.append(FileEdit(path,before,after,0o600,OWNER))
             changes.consumers[OWNER] = frozenset((selection.features & DEPENDENTS if dispatch else frozenset()) | ({'shell'} if marks else set()))
     except (ValueError, UnicodeError):

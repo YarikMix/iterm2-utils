@@ -21,7 +21,7 @@ def build(context, selection):
     if 'codex' not in selection.agents:
         return changes
     existing=context.installed.get('codex-status',{}).get('enabled')
-    if existing and 'status' in selected:
+    if existing and 'status' in selected and not selection.adopt_legacy:
         changes.findings.append(Finding('status','codex','existing_status','ready','Existing enabled codex-iterm2-status is reused.'))
         selected=selected-{'status'}
     if not selected:

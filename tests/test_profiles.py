@@ -75,7 +75,7 @@ class ProfileTests(unittest.TestCase):
             self.assertFalse(final.findings)
             self.assertEqual(final.receipt.resources,[])
             self.assertEqual(self.context.profiles['Default'],parent)
-            self.assertEqual(json.loads(path.read_bytes()).get('Profiles'),None)
+            self.assertFalse(path.exists())
     def test_exact_selected_shortcuts_only(self):
         c=build(self.context,self.selection(('shortcuts',),('codex','claude'),('ctrl-v-ru','alt-enter')))
         for profile in self.profiles(c):

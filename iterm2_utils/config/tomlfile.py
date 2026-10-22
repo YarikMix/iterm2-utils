@@ -42,10 +42,17 @@ def _spans(content):
             i += 1
             continue
         if stripped.startswith('['):
-            match = re.fullmatch(r'\[([A-Za-z0-9_.-]+)\]\s*(?:#.*)?', stripped)
+            match = re.fullmatch(r'\[(.+)\]\s*(?:#.*)?', stripped)
             if not match:
                 raise ValueError('Unsupported TOML table form')
-            table = tuple(match[1].split('.'))
+            parsed = tomllib.loads('['+match[1]+']')
+            address = []
+            while isinstance(parsed,dict) and len(parsed) == 1:
+                key, parsed = next(iter(parsed.items()))
+                address.append(key)
+            if parsed != {}:
+                raise ValueError('Unsupported TOML table form')
+            table = tuple(address)
             result.append(('table',table,i,i+1))
             i += 1
             continue
@@ -69,7 +76,7 @@ def _spans(content):
 
 def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
     parse(content)
-    if not pointer or any(not _NAME.fullmatch(p) for p in pointer):
+    if not pointer or any(not isinstance(p,str) or not p or '\n' in p for p in pointer):
         raise ValueError('Unsupported TOML address')
     lines, spans = _spans(content)
     parent, key = pointer[:-1], pointer[-1]
@@ -97,7 +104,7 @@ def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
         else:
             if lines and not lines[-1].endswith('\n'):
                 lines[-1] += '\n'
-            lines.extend(['\n['+'.'.join(parent)+']\n',replacement])
+            lines.extend(['\n['+'.'.join(p if _NAME.fullmatch(p) else json.dumps(p) for p in parent)+']\n',replacement])
     result = ''.join(lines).encode()
     parse(result)
     return result

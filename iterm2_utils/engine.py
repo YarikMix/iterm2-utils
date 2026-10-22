@@ -51,7 +51,7 @@ def _resource(kind,target,locator,before,installed,owner):
 
 
 def _identity(r):
-    address = {k:v for k,v in r['locator'].items() if k != 'mode'}
+    address = {k:v for k,v in r['locator'].items() if k not in {'mode','placement'}}
     return r['kind'],r['target'],json.dumps(address,sort_keys=True)
 
 
@@ -129,6 +129,8 @@ def _compile(edit):
     old, new = edit.before, edit.after
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else edit.mode
     locator = {'mode':mode}
+    if edit.path.name == 'iterm2-utils.json':
+        return [_resource('file',path,locator,_encode(old),_encode(new),edit.owner)]
     if edit.path.suffix in {'.json','.toml'} and new is not None:
         kind = edit.path.suffix[1:]
         parser = jsonfile.parse if kind=='json' else tomlfile.parse
@@ -138,6 +140,22 @@ def _compile(edit):
             raise ValueError('Configuration root must be a table')
         result = []
         for pointer,a,b in _diff(before,after):
+            if kind == 'json' and len(pointer) == 2 and pointer[0] == 'hooks':
+                old_entries = a['value'] if a['exists'] else []
+                new_entries = b['value'] if b['exists'] else []
+                if not isinstance(old_entries,list) or not isinstance(new_entries,list):
+                    raise ValueError('Invalid hook array')
+                for entry in old_entries + new_entries:
+                    if old_entries.count(entry) > 1 or new_entries.count(entry) > 1:
+                        raise ValueError('Ambiguous duplicate hooks')
+                    was, now = entry in old_entries, entry in new_entries
+                    if was == now:
+                        continue
+                    state.validate_hook(entry)
+                    resource = _resource('hook',path,{'pointer':list(pointer),'entry':entry,'mode':mode},_value(entry,was),_value(entry,now),edit.owner)
+                    if resource not in result:
+                        result.append(resource)
+                continue
             # Validate supported syntax against the original file before writes.
             patcher = jsonfile.patch if kind=='json' else tomlfile.patch
             patcher(old or (b'{}' if kind=='json' else b''),pointer,b['value'],remove=not b['exists'])
@@ -153,8 +171,15 @@ def _compile(edit):
             b = zshrc.block(b,name,None)
         if a != b:
             raise ValueError('Shell edit changes unmanaged content')
-        return [_resource('zsh',path,{'name':name,'mode':mode},_value(before.get(name),name in before),_value(after.get(name),name in after),edit.owner)
-                for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
+        resources = []
+        for name in sorted(before.keys() | after.keys()):
+            if before.get(name) == after.get(name):
+                continue
+            address = {'name':name,'mode':mode}
+            if name in {'legacy-status','legacy-restore'} and name in before and name not in after:
+                address['placement'] = zshrc.placement(old or b'',name)
+            resources.append(_resource('zsh',path,address,_value(before.get(name),name in before),_value(after.get(name),name in after),edit.owner))
+        return resources
     return [_resource('file',path,locator,_encode(old),_encode(new),edit.owner)]
 
 
@@ -186,7 +211,13 @@ def _file_value(r,raw):
     if kind == 'zsh':
         blocks = zshrc.blocks(raw)
         return _value(blocks.get(loc['name']),loc['name'] in blocks)
-    parsed = (jsonfile.parse if kind=='json' else tomlfile.parse)(raw)
+    parsed = (jsonfile.parse if kind in {'json','hook'} else tomlfile.parse)(raw)
+    if kind == 'hook':
+        found = _lookup(parsed,loc['pointer'])
+        entries = found['value'] if found['exists'] else []
+        if not isinstance(entries,list) or entries.count(loc['entry']) > 1:
+            raise ValueError('Ambiguous hook entries')
+        return _value(loc['entry'],loc['entry'] in entries)
     return _lookup(parsed,loc['pointer'])
 
 
@@ -234,8 +265,20 @@ def _set(r,value,runner,context, *, expected):
         raise ValueError('Concurrent resource edit before patch')
     if kind == 'file':
         result = base64.b64decode(value['value'],validate=True) if value['exists'] else None
+    elif kind == 'hook':
+        document = jsonfile.parse(raw or b'{}')
+        found = _lookup(document,loc['pointer'])
+        entries = list(found['value']) if found['exists'] else []
+        if value['exists']:
+            entries.append(loc['entry'])
+        else:
+            entries.remove(loc['entry'])
+        result = jsonfile.patch(raw or b'{}',tuple(loc['pointer']),entries)
     elif kind == 'zsh':
-        result = zshrc.block(raw or b'',loc['name'],value['value'] if value['exists'] else None)
+        if value['exists'] and not expected['exists'] and 'placement' in loc:
+            result = zshrc.restore(raw or b'',loc['name'],value['value'],loc['placement'])
+        else:
+            result = zshrc.block(raw or b'',loc['name'],value['value'] if value['exists'] else None)
     else:
         patcher = jsonfile.patch if kind=='json' else tomlfile.patch
         result = patcher(raw or (b'{}' if kind=='json' else b''),tuple(loc['pointer']),value['value'],remove=not value['exists'])
@@ -244,7 +287,7 @@ def _set(r,value,runner,context, *, expected):
 
 
 def _backup(r,context):
-    if r['kind'] not in {'file','json','toml','zsh'}:
+    if r['kind'] not in {'file','json','toml','zsh','hook'}:
         return
     raw = _bytes(Path(r['target']))
     if raw is not None:
@@ -332,12 +375,14 @@ def _transaction(changes,result,context,runner):
         state.save(context.paths.data/'receipt.json',result)
         shutil.rmtree(journal)
         return True,[]
-    except Exception:
+    except Exception as error:
         # A committed intent must be completed, never rolled back.
         if _bytes(journal/'phase') == b'commit':
             return False,[_finding('commit_pending','Receipt commit needs recovery before another mutation.')]
         unresolved,findings = _inverse(intent.resources,runner,context)
         findings.insert(0,_finding('transaction_failed','A resource changed or could not be written; transaction was stopped.'))
+        if isinstance(error,zshrc.PlacementConflict):
+            findings.append(_finding('legacy_placement_conflict','Legacy shell placement changed. Review the surrounding shell lines before retrying; the feature step was rolled back.','migration'))
         if unresolved:
             intent.resources = unresolved
             state.save(journal/'intent.json',intent)
@@ -346,10 +391,10 @@ def _transaction(changes,result,context,runner):
         return False,findings
 
 
-def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
+def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, remove_owners=frozenset(), expected_receipt=...) -> Outcome:
     empty = _empty(plan.selection)
     findings = list(plan.changes.findings)
-    if (not plan.selection.features or not plan.selection.agents or
+    if ((not plan.selection.features and not remove_owners) or not plan.selection.agents or
             any(f.state in {'conflict','missing_dependency','unavailable'} for f in findings)):
         return Outcome(empty,findings or [_finding('invalid_selection','Select agents and features before installation.')])
     try:
@@ -364,13 +409,16 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                 if consumers is not None:
                     r['owners'].extend(sorted(consumers))
                 compiled.append(r)
-        if not plan.changes.edits:
+        if not remove_owners and not plan.changes.edits and not plan.changes.ui and not any(f.state == 'ready' for f in findings):
             return Outcome(empty,findings+[_finding('no_implemented_features','No selected feature has an implemented installer.','selection','unavailable')])
         with _lock(context):
             recovery = _recover(context,runner)
             if recovery:
                 return Outcome(empty,findings+recovery)
-            previous = state.load(context.paths.data/'receipt.json') or empty
+            persisted = state.load(context.paths.data/'receipt.json')
+            if expected_receipt is not ... and persisted != expected_receipt:
+                raise ValueError('Receipt changed since feature planning')
+            previous = persisted or empty
             resources = copy.deepcopy(previous.resources)
             # A regenerated builder may describe an implemented no-op. Reuse only
             # addresses already owned by this exact feature/shared marker, never
@@ -381,7 +429,7 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                 for owned in previous.resources:
                     if (owned['target'] != str(_resolve(edit.path)) or
                             edit.owner not in owned['owners'] or
-                            owned['kind'] not in {'json','toml','zsh'}):
+                            owned['kind'] not in {'json','toml','zsh','hook'}):
                         continue
                     before = _file_value(owned,edit.before)
                     after = _file_value(owned,edit.after)
@@ -421,7 +469,23 @@ def apply(plan: Plan, context: Context, runner: Runner) -> Outcome:
                     if not _same(current,r['installed']):
                         resources.append(r)
                         changes.append(r)
-            receipt = Receipt(state.VERSION,plan.selection,resources,plan.changes.ui)
+            if remove_owners:
+                retained = []
+                for resource in resources:
+                    removed = set(resource['owners']) & remove_owners
+                    others = set(resource['owners']) - remove_owners
+                    if not removed:
+                        retained.append(resource)
+                    elif any(not owner.startswith('shared:') for owner in others):
+                        resource['owners'] = sorted(others)
+                        retained.append(resource)
+                    elif not _same(_read(resource,runner,context),resource['installed']):
+                        retained.append(resource)
+                        findings.append(_finding('uninstall_changed','User-changed value was preserved; ownership remains unresolved.',resource['owners'][0]))
+                    else:
+                        changes.append(dict(resource,before=resource['installed'],installed=resource['before']))
+                resources = retained
+            receipt = Receipt(state.VERSION,plan.selection,resources,plan.changes.ui,previous.ui_snapshots if ui_snapshots is None else ui_snapshots)
             ok,failed = _transaction(changes,receipt,context,runner)
             return Outcome(receipt if ok else previous,findings+failed)
     except Exception:
@@ -458,7 +522,7 @@ def revert(receipt: Receipt, context: Context, runner: Runner, owners: frozenset
                     findings.append(_finding('uninstall_changed','User-changed value was preserved; ownership remains unresolved.',r['owners'][0]))
                     continue
                 changes.append(dict(r,before=r['installed'],installed=r['before']))
-            result = Receipt(state.VERSION,receipt.selection,remaining,receipt.pending_ui)
+            result = Receipt(state.VERSION,receipt.selection,remaining,receipt.pending_ui,receipt.ui_snapshots)
             ok,failed = _transaction(changes,result,context,runner)
             return Outcome(result if ok else receipt,findings+failed)
     except Exception:

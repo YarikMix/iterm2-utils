@@ -24,7 +24,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
         return changes
 
     def finding(code, message, agent=None, state='conflict'):
-        changes.findings.append(Finding('clipboard' if clipboard else 'shortcuts', agent, code, state, message))
+        changes.findings.append(Finding('shortcuts' if code in {'shortcut_capability','custom_keymap_caveat'} else ('clipboard' if clipboard else 'shortcuts'), agent, code, state, message))
 
     parent = context.profiles.get(selection.parent_profile)
     if parent is None:
@@ -76,8 +76,17 @@ def build(context: Context, selection: Selection) -> ChangeSet:
                          'Bound Hosts': ['&'+agent], 'Keyboard Map': keys})
     path = context.paths.profiles/'iterm2-utils.json'
     before = path.read_bytes() if path.exists() else None
+    try:
+        document = json.loads(before) if before else {}
+        if not isinstance(document,dict):
+            raise ValueError('profile root')
+        document['Profiles'] = profiles
+    except (ValueError,TypeError):
+        finding('profile_conflict','The dedicated profile document cannot be safely read.')
+        return changes
     # A dedicated profile document is still CAS protected and address-owned by the engine.
-    changes.edits.append(FileEdit(path, before, (json.dumps({'Profiles': profiles}, sort_keys=True, indent=2)+'\n').encode(), 0o600, OWNER))
+    after = before if before is not None and json.loads(before) == document else (json.dumps(document, sort_keys=True, indent=2)+'\n').encode()
+    changes.edits.append(FileEdit(path, before, after, 0o600, OWNER))
     consumers = ({'clipboard'} if clipboard else set()) | ({'shortcuts'} if shortcuts else set())
     changes.consumers[OWNER] = frozenset(consumers)
     if clipboard:

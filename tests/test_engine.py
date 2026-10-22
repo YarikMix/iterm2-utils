@@ -314,3 +314,12 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(two.findings)
         self.assertEqual(two.receipt.resources,one.receipt.resources)
         self.assertEqual(two.receipt.resources[0]['owners'],['clipboard'])
+
+    def test_stale_receipt_cannot_drop_concurrently_selected_feature(self):
+        from iterm2_utils import state
+        first=self.root/'first';second=self.root/'second'
+        initial=engine.apply(self.plan([FileEdit(first,None,b'first',0o600,'clipboard')]),self.context,None)
+        result=engine.apply(self.plan([FileEdit(second,None,b'second',0o600,'clipboard')]),self.context,None,expected_receipt=None)
+        self.assertFalse(second.exists())
+        self.assertTrue(any(f.code=='apply_conflict' for f in result.findings))
+        self.assertEqual(state.load(self.context.paths.data/'receipt.json'),initial.receipt)

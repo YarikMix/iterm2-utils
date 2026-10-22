@@ -65,24 +65,35 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
 
 def plan(context: Context, selection: Selection) -> Plan:
     findings = validate(selection, context)
-    from .features import restore
-    findings.extend(restore.build(context,selection).findings)
+    from .features import profiles, shell, status, notifications, restore, mcp
+    from . import migration
     supported = selection.features - CODEX_ONLY if 'codex' not in selection.agents else selection.features
     selected = replace(selection, features=frozenset(supported))
-    ui = [UiStep(f.code, f.feature, f.agent, f.message) for f in findings if f.state == 'pending_ui']
     payload = {'agents': sorted(selected.agents), 'features': sorted(selected.features),
                'shortcuts': sorted(selected.shortcuts), 'parent_profile': selected.parent_profile,
                'adopt_legacy': selected.adopt_legacy, 'versions': context.versions,
                'capabilities': sorted(context.capabilities)}
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-    changes = ChangeSet([], ui, findings)
-    if not any(f.state in {'conflict', 'missing_dependency'} for f in findings):
-        from .features.profiles import build
-        from .features import shell, status, notifications, restore, mcp
-        for builder in (build, shell.runtime_payload, shell.build, status.build, notifications.build, mcp.build):
-            built = builder(context, selected)
+    changes = ChangeSet([], [], findings)
+    # External status is reused without installing a competing shell/runtime copy.
+    reused = context.installed.get('codex-status',{}).get('enabled') and not selected.adopt_legacy
+    runtime_selection = replace(selected,features=selected.features-{'status'}) if reused else selected
+    for builder, choice in ((migration.build,selected),(restore.build,selected),(profiles.build,selected),
+                            (shell.runtime_payload,runtime_selection),(shell.build,runtime_selection),
+                            (status.build,selected),(notifications.build,selected),(mcp.build,selected)):
+        try:
+            built = builder(context, choice)
             changes.edits.extend(built.edits)
             changes.ui.extend(built.ui)
             changes.findings.extend(built.findings)
             changes.consumers.update(built.consumers)
+        except (ValueError, OSError, KeyError, TypeError):
+            affected = ({'shell','status','notifications','restore'} if builder in {shell.build,shell.runtime_payload} else
+                        {'clipboard','shortcuts'} if builder == profiles.build else
+                        {'status','notifications','restore'} if builder == status.build else
+                        {'status','restore'} if builder == migration.build else
+                        {'notifications'} if builder == notifications.build else
+                        {'restore'} if builder == restore.build else {'mcp'})
+            for feature in sorted(choice.features & affected):
+                changes.findings.append(Finding(feature,None,'builder_conflict','conflict','A selected resource could not be safely prepared.'))
     return Plan(selected, changes, fingerprint)

@@ -109,6 +109,7 @@ class Receipt:
     selection: Selection
     resources: list[dict]
     pending_ui: list[UiStep]
+    ui_snapshots: dict[str, list[dict]] = field(default_factory=dict)
 
 
 @dataclass

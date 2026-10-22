@@ -74,3 +74,19 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code,2,err)
             self.assertEqual(f.snapshot(),before)
             self.assertEqual(json.loads(out)['findings'][0]['code'],'ownership_unavailable')
+
+    def test_update_missing_receipt_is_structured_and_read_only(self):
+        with Fixture() as f:
+            before=f.snapshot()
+            code,out,err=self.invoke(f,['update','--json'])
+            self.assertEqual(code,2);self.assertEqual(f.snapshot(),before)
+            data=json.loads(out);self.assertEqual(data['selection']['features'],[])
+            self.assertEqual(data['findings'][0]['code'],'ownership_unavailable')
+
+    def test_reconcile_requires_known_pending_step(self):
+        with Fixture() as f:
+            before=f.snapshot()
+            code,out,err=self.invoke(f,['reconcile','--step','claude-native-status','--json'])
+            self.assertEqual(code,2)
+            self.assertEqual(json.loads(out)['findings'][0]['code'],'ownership_unavailable')
+            self.assertEqual(f.snapshot(),before)

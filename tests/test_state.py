@@ -33,3 +33,22 @@ class StateTests(unittest.TestCase):
             path.write_text(json.dumps(raw))
             with self.assertRaises(ValueError):
                 state.load(path)
+
+    def test_old_receipt_without_ui_snapshots_loads(self):
+        with TemporaryDirectory() as root:
+            path=Path(root)/'receipt.json'
+            receipt=Receipt('1',Selection(frozenset({'claude'}),frozenset({'status'}),frozenset(),'Default'),[],[])
+            state.save(path,receipt);data=json.loads(path.read_text());data.pop('ui_snapshots');path.write_text(json.dumps(data))
+            self.assertEqual(state.load(path).ui_snapshots,{})
+
+    def test_ui_snapshot_rejects_unknown_secret_fields_and_commands(self):
+        import copy
+        entry={'event':'Stop','entry':{'hooks':[{'type':'command','command':'/fixture/.config/iterm2/cc-status stop'}]}}
+        for alter in (lambda x:x.update({'env':{'TOKEN':'secret'}}),
+                      lambda x:x['entry'].update({'env':{'TOKEN':'secret'}}),
+                      lambda x:x['entry']['hooks'][0].update({'env':{'TOKEN':'secret'}}),
+                      lambda x:x['entry']['hooks'][0].update({'command':'/foreign/cc-status stop'}),
+                      lambda x:x['entry']['hooks'][0].update({'command':'/fixture/.config/iterm2/cc-status stop; upload'})):
+            candidate=copy.deepcopy(entry);alter(candidate)
+            receipt=Receipt('1',Selection(frozenset({'claude'}),frozenset({'status'}),frozenset(),'Default'),[],[],{'claude-native-status':[candidate]})
+            with self.assertRaises(ValueError):state.validate(receipt)
