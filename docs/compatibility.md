@@ -5,12 +5,28 @@ Release: **v0.1.0-beta.1**, 2026-10-23. Supported target: macOS + zsh with Pytho
 it does not establish Linux product support. This beta has no stable-production
 acceptance claim.
 
+Native migration local verification, 2026-10-23: the exact tested **pre-documentation
+code snapshot** is commit `fbe38f1fc2fb9a801d678df5fe436dd7cc42f89e`.
+The verification matrix update follows that commit and changes documentation only;
+this SHA identifies the code/tests that passed, rather than a self-referencing final
+documentation commit. No native migration CI, model-behavior or live run is claimed.
+
+| Local command / scope | Actual result |
+| --- | --- |
+| `python3 -m unittest discover -s tests -t . -v` | 404 tests, PASS; includes the 6 export tests and extracted-archive installed hook smoke |
+| `/bin/zsh tests/test_codex_shell.zsh` | PASS (`Codex dispatcher tests passed`) |
+| `/bin/zsh tests/restore/test_codex.zsh` | 37 tests, PASS (`pass=37 fail=0`) |
+| `python3 tools/check_sources.py` | 27 pinned sources verified; unchanged vendor hashes/licenses |
+| `python3 tools/check_skill.py` | Structure valid; no behavioral evaluation |
+| `python3 tools/check_export.py` | 102 explicit, unique files; provenance/licenses/private-reference checks PASS |
+| `python3 tools/build_release.py --destination dist` | Deterministic beta.1 archive and basename-only SHA-256 file built; archive extraction/install independence covered by the export tests |
+
 | Component | Pinned or source-level contract | Actual acceptance |
 | --- | --- | --- |
 | iTerm2 | v3.7.6 native cc-status, minimum 3.7.6, executable sibling it2 with required flag checks; official zsh integration | Fixture app/preferences/runner only; live iTerm2 unverified |
 | Codex | --no-daemon and strict explicit UUID; 0.163.0 hook enum has exactly 12 events and no StopFailure/Notification/PostToolUseFailure | Fake CLI/hooks/payloads; installed live agent and automatic API-error source unverified/unsupported respectively |
 | Claude Code | Native cc-status integration checkpoint; Alt+Enter sourced for 2.1.308 | Fake CLI/hooks; native integration and live agent unverified |
-| Python | Installer and selected hook/restore runtime 3.11+; MCP server requires 3.12+ | Local fixtures: 3.13.7. Remote macOS fixtures passed on 3.11 and 3.x (resolved to 3.14.8); see CI evidence below |
+| Python | Installer and selected hook/restore runtime 3.11+; MCP server requires 3.12+ | Native migration local fixtures: 3.13.7. Historical beta macOS fixtures passed on 3.11 and 3.x (resolved to 3.14.8); no new CI run |
 | MCP | mcp-server-iterm2==0.1.1, mcp<2, invoked through uvx | Fixture initialize/list_sessions/read-only allowlist; live server/TCC unverified |
 | Notifications | terminal-notifier, it2, osascript; exact tab UUID targeting; explicit foreign-handler coexistence | Fixture delivery/focus only; macOS banners/click behavior unverified |
 | Restore | Bundled Codex restore port, fzf dependency | Fixture lifecycle/transcript selection only; real dialogs unverified |
@@ -45,6 +61,14 @@ partial/full uninstall, shared runtime, foreign settings preservation and source
 checkout independence are covered by contracts. Export smoke extracts the archive,
 moves its fixture source checkout away, runs CLI contracts, installs fixture
 runtime and deletes the extracted source before testing installed entry points.
+The installed `hook.py` reaches only its selected fake bundle with an explicit,
+matching terminal UUID and no inherited TMUX session. Replacing both native
+utilities in that bundle is observed on the next event without changing installed
+runtime bytes. Missing native/sibling utilities and `status: false` produce no
+native call; PATH traps remain unused. Synthetic raw prompt content stays out of
+the forwarded payload, caches, receipts and runtime. Application binaries are
+neither exported nor owned, and the retained vendor helpers keep their pinned
+source/license metadata.
 
 No isolated macOS account/VM or separately verified app-preferences environment
 was available for this release preparation. The author's current installation
@@ -54,9 +78,13 @@ was not used for acceptance. These cases remain **live-unverified**:
 | --- | --- |
 | Copy Cmd+C/Ctrl+C in EN/RU, no extra command, profile start/exit | Unverified |
 | Selected hotkeys' emitted bytes; shell marks/navigation | Unverified |
-| Actual startup, working, input/permission waiting, Stop/done/idle from Codex 0.163.0 + iTerm2 3.7.6 and a recorded Claude version | Unverified |
-| Parallel subagents, compact, two explicit UUIDs, bundle update and API unavailable | Unverified |
-| Synthetic StopFailure renderer; real Codex 0.163.0 API failure | Renderer unverified; real StopFailure source absent/unsupported |
+| Native synthetic start/prompt/stop/interrupt/StopFailure renderer, including working/done/idle/error | Live-unverified; fixture adapter checks do not prove renderer behavior |
+| Actual Codex 0.163.0 prompt/tool/permission/input/Esc/compact and the three adapter transformations with iTerm2 3.7.6 | Live-unverified |
+| Two panels/two sessions, switching the active tab while a response runs; exact UUID targeting | Live-unverified |
+| Parallel/detached subagents and main Stop; waiting/background completion after errors | Live-unverified; no local status fallback |
+| Native Claude at a recorded version with notifications separately; absence of duplicate writers/banners | Live-unverified; no live Claude version recorded for this migration |
+| API off / native unavailable / bundle updated; doctor setup/API/event-delivery distinction | Live-unverified; only fake bundle/dependency/doctor contracts passed |
+| Real Codex 0.163.0 API failure | StopFailure source absent/unsupported, even if a synthetic renderer later passes |
 | Completion/attention banners, foreground suppression and click to correct tab | Unverified |
 | Interrupt without false completion | Unverified |
 | fzf resumes only selected conversations with preserved CODEX_HOME/cwd | Unverified |
