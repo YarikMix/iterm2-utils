@@ -244,7 +244,10 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
             for command in (ordinary, quoted_separator, 'sh -c '+shlex.quote(ordinary),
                             'sh -c '+shlex.quote(quoted_separator),
                             'env -u '+name+' /third-party/record-event',
-                            'exec -a '+name+' /third-party/record-event'):
+                            'exec -a '+name+' /third-party/record-event',
+                            'nice -n 5 /third-party/record-event '+name,
+                            '> '+name+' /third-party/record-event',
+                            "'>' /dev/null "+name):
                 for complete in (False, True):
                     with self.subTest(command=command, complete=complete), Fixture() as f:
                         paths = resolve_paths()
@@ -270,6 +273,22 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
                     hooks['Stop'].append({'hooks': [{'type': 'command', 'command': command}]})
                     self.write_hooks(paths, hooks)
                     self.assertEqual(discovery.native_codex_hook_state(paths, f.app), 'conflict')
+
+    def test_nice_and_leading_redirection_are_executable_positions(self):
+        commands = (
+            '/usr/bin/nice -n 5 /third-party/cc-status --agent codex',
+            '/usr/bin/nice --adjustment=5 /third-party/cc-status --agent codex',
+            '> /dev/null /third-party/cc-status --agent codex',
+            '2>/dev/null MODE=test > /dev/null /third-party/cc-status --agent codex',
+        )
+        for command in commands:
+            for complete in (False, True):
+                with self.subTest(command=command, complete=complete), Fixture() as f:
+                    paths=resolve_paths();hooks=self.hooks(f.app) if complete else {}
+                    hooks.setdefault('Stop',[]).append({'hooks':[{'type':'command','command':command}]})
+                    self.write_hooks(paths,hooks);before=f.snapshot()
+                    self.assertEqual(discovery.native_codex_hook_state(paths,f.app),'conflict')
+                    self.assertEqual(f.snapshot(),before)
 
     def test_wrapper_option_operands_do_not_hide_executing_native_writer(self):
         commands = (

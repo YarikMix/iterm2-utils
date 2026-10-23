@@ -275,6 +275,33 @@ def _shell_substitutions(command):
     return bodies
 
 
+def _executable_words(segment):
+    """Skip shell prefixes while preserving quoted redirection operators as data."""
+    # A shell word includes adjacent quoted/unquoted parts. Keep its raw spelling
+    # until redirections are removed: shlex alone loses whether '>' was quoted.
+    word = r"(?:[^\s<>\x22'\\]+|'[^']*'|\x22(?:\\.|[^\x22\\])*\x22|\\.)+"
+    remaining = segment.lstrip()
+    while remaining:
+        redirect = re.match(r'(?:[0-9]+)?(?:<>|>\||>>?|<<?)', remaining)
+        if redirect:
+            remaining = remaining[redirect.end():].lstrip()
+            target = re.match(word, remaining, re.S)
+            if target is None:
+                raise ValueError('Missing redirection target')
+            remaining = remaining[target.end():].lstrip()
+            continue
+        token = re.match(word, remaining, re.S)
+        if token is None:
+            break
+        raw = token.group()
+        if (raw in {'if', 'then', 'elif', 'else', 'while', 'until', 'do', '!'} or
+                re.match(r'[A-Za-z_][A-Za-z0-9_]*=', raw)):
+            remaining = remaining[token.end():].lstrip()
+            continue
+        break
+    return _shell_tokens(remaining)
+
+
 def _status_command_roles(command, depth=0):
     """Classify executable positions and explicit wrappers, never ordinary args."""
     if depth > 8:
@@ -283,11 +310,7 @@ def _status_command_roles(command, depth=0):
     for body in _shell_substitutions(command):
         roles |= _status_command_roles(body, depth + 1)
     for segment in _shell_commands(command):
-        words = _shell_tokens(segment)
-        # Conditional keywords and assignments precede the executable position.
-        while words and (words[0] in {'if', 'then', 'elif', 'else', 'while', 'until', 'do', '!'} or
-                         re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', words[0], re.S)):
-            words = words[1:]
+        words = _executable_words(segment)
         if not words:
             continue
         executable = Path(words[0]).name
@@ -302,10 +325,11 @@ def _status_command_roles(command, depth=0):
                 if 'c' in option and index + 1 < len(words):
                     roles |= _status_command_roles(words[index + 1], depth + 1)
                     break
-        elif executable in {'command', 'exec', 'env', 'nohup'}:
+        elif executable in {'command', 'exec', 'env', 'nohup', 'nice'}:
             rest = words[1:]
             operands = ({'-u', '--unset', '-P', '-C', '--chdir'} if executable == 'env'
-                        else {'-a'} if executable == 'exec' else set())
+                        else {'-a'} if executable == 'exec'
+                        else {'-n', '--adjustment'} if executable == 'nice' else set())
             while rest:
                 if rest[0] == '--':
                     rest = rest[1:]
@@ -446,8 +470,15 @@ def native_status_findings(context: Context, selection) -> list:
         return []
     native = context.installed.get('codex-native-status', {})
     legacy = context.installed.get('codex-status', {}).get('enabled')
-    reused = legacy and not native and not selection.adopt_legacy
-    if native.get('conflict') or native.get('enabled') and legacy:
+    from .features.status import owned_visible_status
+    try:
+        owned = owned_visible_status(context) if legacy or native else False
+    except (ValueError, OSError):
+        return [Finding('status','codex','status_backend','conflict',
+            'Status ownership could not be verified; resolve the receipt before choosing a status writer.')]
+    collision = legacy and owned and not selection.adopt_legacy
+    reused = legacy and not native and not selection.adopt_legacy and not owned
+    if collision or native.get('conflict') or native.get('enabled') and (legacy or owned):
         backend, backend_state = 'Conflicting status writers; resolve native/legacy registrations.', 'conflict'
     elif reused:
         backend, backend_state = 'Codex backend: legacy reused; this is not cc-status. Use --adopt-legacy for explicit migration.', 'ready'

@@ -90,8 +90,92 @@ class NativeMigrationTests(LifecycleFixture):
         p=self.context.paths
         p.codex_home.mkdir(exist_ok=True)
         config=p.codex_home/'config.toml'
-        config.write_text('[plugins."iterm2-status@local"]\nenabled = true\n')
+        config.write_text((config.read_text() if config.exists() else '')+'\n[plugins."iterm2-status@local"]\nenabled = true\n')
         return config
+
+    def assert_legacy_collision(self):
+        config=self.legacy();before=self.live_snapshot()
+        receipt=state.load(self.context.paths.data/'receipt.json')
+        findings=lifecycle.doctor(self.context,receipt,self.runner)
+        backend=next(f for f in findings if f.code=='status_backend')
+        self.assertEqual(backend.state,'conflict')
+        for dry_run in (True,False):
+            result=lifecycle.update(self.context,self.runner,dry_run=dry_run)
+            self.assertTrue(any(f.code=='legacy_hook_conflict' and f.state=='conflict' for f in result.findings))
+            self.assertEqual(self.live_snapshot(),before)
+        self.assertTrue(self.settings()['status'])
+        self.assertTrue(tomlfile.parse(config.read_bytes())['plugins']['iterm2-status@local']['enabled'])
+        return config
+
+    def test_legacy_collision_diagnostics_do_not_trust_corrupt_ownership(self):
+        from iterm2_utils.planner import plan
+        self.assertSuccess(self.install('status'));self.legacy()
+        (self.context.paths.data/'receipt.json').write_text('{broken')
+        before=self.live_snapshot()
+        result=plan(lifecycle._context(self.context),self.selection('status'))
+        self.assertTrue(any(f.code=='status_backend' and f.state=='conflict' for f in result.changes.findings))
+        self.assertEqual(self.live_snapshot(),before)
+
+    def test_external_legacy_after_owned_native_is_conflict_until_explicit_adoption(self):
+        self.assertSuccess(self.install('status'))
+        config=self.assert_legacy_collision()
+        # Independent Claude native UI work can still complete.
+        self.assertSuccess(self.install('status',agents=('claude',)))
+        for feature,agent in (('notifications','codex'),('restore','codex'),('notifications','claude')):
+            before=self.live_snapshot()
+            result=self.install(feature,agents=(agent,))
+            self.assertTrue(any(f.code=='legacy_hook_conflict' for f in result.findings))
+            self.assertEqual(self.live_snapshot(),before)
+        choice=self.selection('status');choice.adopt_legacy=True
+        self.assertSuccess(lifecycle.install(self.context,choice,self.runner))
+        self.assertFalse(tomlfile.parse(config.read_bytes())['plugins']['iterm2-status@local']['enabled'])
+        self.assertTrue(self.settings()['status'])
+        hooks=json.loads((self.context.paths.codex_home/'hooks.json').read_bytes())['hooks']
+        self.assertEqual(sum(map(len,hooks.values())),12)
+
+    def test_external_legacy_after_beta1_blocks_update_and_retained_status_recomposition(self):
+        self.beta1();self.assert_legacy_collision();before=self.live_snapshot()
+        result=lifecycle.uninstall(self.context,{'notifications'},self.runner,agents={'claude'})
+        self.assertTrue(any(f.state=='conflict' for f in result.findings))
+        self.assertEqual(self.live_snapshot(),before)
+        choice=self.selection('status');choice.adopt_legacy=True
+        self.assertSuccess(lifecycle.install(self.context,choice,self.runner))
+        self.assertEqual(self.settings()['status_backend'],'cc-status')
+
+    def test_external_legacy_allows_removing_owned_status_and_retaining_consumers(self):
+        choice=self.selection('status','notifications','restore');choice.coexist_notifications=True
+        self.assertSuccess(lifecycle.install(self.context,choice,self.runner))
+        config=self.legacy();before=config.read_bytes()
+        result=lifecycle.uninstall(self.context,{'status'},self.runner)
+        self.assertSuccess(result)
+        self.assertEqual(config.read_bytes(),before)
+        self.assertFalse(self.settings()['status'])
+        self.assertTrue(self.settings()['restore'])
+        self.assertTrue(self.settings()['notifications'])
+
+    def test_executing_nice_and_leading_redirection_block_install_without_mutation(self):
+        import shlex
+        import subprocess
+        from iterm2_utils.discovery import native_codex_hook_state
+        p=self.context.paths
+        binary=self.context.executables['iterm2']/'Contents/Resources/utilities/cc-status'
+        binary.parent.mkdir(parents=True)
+        marker=p.home/'native-input'
+        binary.write_text('#!/bin/sh\n/bin/cat > '+shlex.quote(str(marker))+'\n');binary.chmod(0o700)
+        p.codex_home.mkdir()
+        path=p.codex_home/'hooks.json'
+        for prefix in ('/usr/bin/nice -n 5 ', '> /dev/null '):
+            with self.subTest(prefix=prefix):
+                command=prefix+shlex.join([str(binary),'--agent','codex'])
+                subprocess.run(['/bin/sh','-c',command],input='{"synthetic":true}',text=True,check=True,
+                               env={'HOME':str(p.home)},capture_output=True,timeout=2)
+                self.assertEqual(marker.read_text(),'{"synthetic":true}')
+                path.write_text(json.dumps({'hooks':{'UserPromptSubmit':[{'hooks':[{'type':'command','command':command}]}]}}))
+                before=self.live_snapshot()
+                self.assertEqual(native_codex_hook_state(p,self.context.executables['iterm2']),'conflict')
+                result=self.install('status')
+                self.assertTrue(any(f.state=='conflict' for f in result.findings))
+                self.assertEqual(self.live_snapshot(),before)
 
     def test_adoption_write_failure_restores_legacy_writer(self):
         self.assertSuccess(self.install('shell'))

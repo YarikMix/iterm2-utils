@@ -14,6 +14,10 @@ class HookBudgetExpired(BaseException):
     """Overall deadline must bypass ordinary per-handler error isolation."""
 
 
+class HookCancelled(BaseException):
+    """Controlled termination must unwind native process-group ownership."""
+
+
 @contextmanager
 def _defer_spawn_signals():
     """Retain cancellation until Popen has published its child PID.
@@ -26,7 +30,7 @@ def _defer_spawn_signals():
     try:
         with ExitStack() as restore:
             if threading.current_thread() is threading.main_thread():
-                for number in (signal.SIGALRM, signal.SIGINT):
+                for number in (signal.SIGALRM, signal.SIGINT, signal.SIGTERM):
                     previous = signal.getsignal(number)
                     if callable(previous):
                         def defer(signum, frame, handler=previous):
@@ -125,9 +129,12 @@ def main(argv: list[str]) -> int:
     deadline = time.monotonic()+2.7
     def expired(*_):
         raise HookBudgetExpired('hook budget')
-    old = None
+    def cancelled(*_):
+        raise HookCancelled('hook cancelled')
+    old = {}
     try:
-        old = signal.signal(signal.SIGALRM, expired)
+        for number, handler in ((signal.SIGALRM, expired), (signal.SIGTERM, cancelled)):
+            old[number] = signal.signal(number, handler)
         signal.setitimer(signal.ITIMER_REAL, max(0.000001, deadline-time.monotonic()))
         args = dict(zip(argv[::2], argv[1::2]))
         try:
@@ -145,12 +152,13 @@ def main(argv: list[str]) -> int:
             restore_metadata = {key: raw[key] for key in ('session_id', 'cwd', 'transcript_path', 'hook_event_name') if key in raw}
             dispatch(event, settings, Runner(), restore_metadata=restore_metadata,
                      raw_event=raw, environment=environment, deadline=deadline)
-    except (Exception, HookBudgetExpired):
+    except (Exception, HookBudgetExpired, HookCancelled):
         pass
     finally:
-        if old is not None:
+        if signal.SIGALRM in old:
             signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, old)
+        for number, handler in old.items():
+            signal.signal(number, handler)
     print('{}')
     return 0
 

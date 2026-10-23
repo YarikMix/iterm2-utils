@@ -26,17 +26,19 @@ def build(context, selection):
     native=context.installed.get('codex-native-status',{})
     native_reused=False
     if 'status' in selected:
-        owned_status = owned_visible_status(context) if native else False
-        if native.get('conflict') or native.get('enabled') and (existing or owned_status):
-            changes.findings.append(Finding('status','codex','native_hook_conflict','conflict',
+        owned_status = owned_visible_status(context)
+        legacy_collision = existing and owned_status and not selection.adopt_legacy
+        if legacy_collision or native.get('conflict') or native.get('enabled') and (existing or owned_status):
+            code = 'legacy_hook_conflict' if legacy_collision else 'native_hook_conflict'
+            changes.findings.append(Finding('status','codex',code,'conflict',
                 'Conflicting native/legacy status writers require explicit resolution before installing status.'))
             if owned_status:
                 # Only Python runtime consumers need this shared rebuild;
                 # Claude's native status UI checkpoint remains independent.
                 for pair in sorted(runtime_consumers - {'codex:status'}):
                     agent, feature = pair.split(':',1)
-                    changes.findings.append(Finding(feature,agent,'native_hook_conflict','conflict',
-                        'Owned visible status prevents safe shared hook/runtime recomposition while external native hooks are active.'))
+                    changes.findings.append(Finding(feature,agent,code,'conflict',
+                        'Owned visible status prevents safe shared hook/runtime recomposition while an external status writer is active.'))
             return changes
         if native.get('enabled'):
             native_reused=True
@@ -99,7 +101,7 @@ def build(context, selection):
 
 
 def owned_visible_status(context):
-    """Do not silently leave a previously owned visible writer beside native hooks."""
+    """Do not silently leave a previously owned visible writer beside an external status writer."""
     from .. import state
     receipt = state.load(context.paths.data/'receipt.json')
     if not receipt:

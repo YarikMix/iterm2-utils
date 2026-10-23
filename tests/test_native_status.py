@@ -384,6 +384,87 @@ class NativeStatusTests(unittest.TestCase):
     def test_overall_alarm_kills_child_process_group(self):
         self.child_cleanup_case(overall=True)
 
+    def sigterm_cleanup_case(self, *, spawn=False):
+        marker=self.root/'signal-pids'
+        self.executable('import os,subprocess,sys,time\nfrom pathlib import Path\n'
+                        'child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"])\n'
+                        'Path('+repr(str(marker))+').write_text(str(os.getpid())+" "+str(child.pid))\n'
+                        'time.sleep(30)')
+        # Hold the OS spawn return before Popen assigns self.pid. The release
+        # handshake makes SIGTERM land in the actual PID-registration window.
+        spawned=self.root/'spawned';release=self.root/'release-spawn';returned=self.root/'spawn-returned'
+        prefix=''
+        if spawn:
+            prefix=('import subprocess,time\nfrom pathlib import Path\n'
+                    'original=subprocess._fork_exec\n'
+                    'def fork_exec(*a,**k):\n'
+                    '    pid=original(*a,**k)\n'
+                    '    Path('+repr(str(spawned))+').touch()\n'
+                    '    until=time.monotonic()+1\n'
+                    '    while not Path('+repr(str(release))+').exists() and time.monotonic()<until: time.sleep(.005)\n'
+                    '    Path('+repr(str(returned))+').touch()\n'
+                    '    return pid\n'
+                    'subprocess._fork_exec=fork_exec\n')
+        settings_path=self.root/'settings.json';settings_path.write_text(json.dumps(self.settings))
+        command=[sys.executable,'-c',prefix+'from runtime.hook import main; main(__import__("sys").argv[1:])']
+        proc=subprocess.Popen(command+['--settings',str(settings_path)],env=self.environment,
+                              stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        start=time.monotonic();pids=[]
+        try:
+            proc.stdin.write(json.dumps({'session_id':'s','hook_event_name':'UserPromptSubmit'}))
+            proc.stdin.close();proc.stdin=None
+            until=time.monotonic()+2
+            while not marker.exists() and time.monotonic()<until: time.sleep(.005)
+            self.assertTrue(marker.exists(),'native and grandchild must start before SIGTERM')
+            pids=list(map(int,marker.read_text().split()))
+            if spawn:
+                self.assertTrue(spawned.exists(),'must be inside OS spawn before PID registration')
+                self.assertFalse(returned.exists(),'spawn must still be waiting for SIGTERM')
+            proc.send_signal(signal.SIGTERM)
+            if spawn: release.touch()
+            stdout,stderr=proc.communicate(timeout=3)
+            self.assertEqual((proc.returncode,stdout,stderr),(0,'{}\n',''))
+            self.assertLess(time.monotonic()-start,2.7)
+            until=time.monotonic()+.5
+            while any(self.process_running(pid) for pid in pids) and time.monotonic()<until: time.sleep(.01)
+            self.assertEqual([pid for pid in pids if self.process_running(pid)],[],'SIGTERM leaked process group')
+        finally:
+            if not pids and marker.exists(): pids=list(map(int,marker.read_text().split()))
+            for pid in pids:
+                try: os.killpg(pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+                try: os.kill(pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+            if proc.poll() is None: proc.kill()
+            proc.communicate()
+
+    def test_real_sigterm_cleans_native_and_grandchild(self):
+        self.sigterm_cleanup_case()
+
+    def test_real_sigterm_during_spawn_cleans_native_and_grandchild(self):
+        self.sigterm_cleanup_case(spawn=True)
+
+    def test_main_restores_sigterm_and_alarm_handlers(self):
+        import io
+        previous={number:signal.getsignal(number) for number in (signal.SIGTERM,signal.SIGALRM)}
+        observed=[]
+        def read(*args,**kwargs):
+            observed.append(signal.getsignal(signal.SIGTERM) is not sentinel)
+            os.kill(os.getpid(),signal.SIGTERM)
+            observed.append('continued after cancellation')
+        # A sentinel keeps the pre-fix process alive, so this test fails safely.
+        def sentinel(*args): pass
+        try:
+            signal.signal(signal.SIGTERM,sentinel)
+            with patch.object(Path,'read_text',read), contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(hook.main(['--settings','unused']),0)
+            self.assertEqual(output.getvalue(),'{}\n')
+            self.assertEqual(observed,[True])
+            self.assertIs(signal.getsignal(signal.SIGTERM),sentinel)
+            self.assertIs(signal.getsignal(signal.SIGALRM),previous[signal.SIGALRM])
+        finally:
+            for number,handler in previous.items(): signal.signal(number,handler)
+
     def test_malformed_oversize_and_native_failures_are_silent(self):
         marker = self.root/'calls'
         self.executable('from pathlib import Path\nPath('+repr(str(marker))+').touch()')
