@@ -124,7 +124,12 @@ def check(repo: Path) -> list[str]:
     repo = Path(repo).resolve()
     errors = []
     contents = {}
+    seen_paths = set()
     for name in EXPORT_FILES:
+        if name in seen_paths:
+            errors.append('Duplicate export path: '+name)
+            continue
+        seen_paths.add(name)
         path = repo/name
         # Reject links in any component, even links pointing back into the tree.
         if any(p.is_symlink() for p in (path, *path.parents) if p != repo.parent):
