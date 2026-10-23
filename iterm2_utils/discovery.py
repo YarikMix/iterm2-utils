@@ -183,11 +183,17 @@ def _shell_tokens(command):
 def _shell_commands(command):
     """Split only unquoted shell operators; quoted operator arguments stay data."""
     segments, segment = [], []
-    quote, escaped = None, False
+    quote, escaped, comment, word_start = None, False, False, True
     for char in command:
+        if comment:
+            if char != '\n':
+                continue
+            comment = False
         if escaped:
             segment.append(char)
             escaped = False
+            if char != '\n':
+                word_start = False
         elif char == chr(92) and quote != "'":
             segment.append(char)
             escaped = True
@@ -197,11 +203,16 @@ def _shell_commands(command):
             elif quote == char:
                 quote = None
             segment.append(char)
+            word_start = False
+        elif quote is None and char == '#' and word_start:
+            comment = True
         elif quote is None and char in ';&|()\n':
             segments.append(''.join(segment))
             segment = []
+            word_start = True
         else:
             segment.append(char)
+            word_start = quote is None and char.isspace()
     segments.append(''.join(segment))
     return segments
 
@@ -213,11 +224,17 @@ def _shell_substitutions(command):
     def scan(start, terminator=None, depth=0):
         if depth > 16:
             raise ValueError('Shell substitution nesting limit')
-        index, quote, parentheses = start, None, 0
+        index, quote, parentheses, word_start = start, None, 0, True
         while index < len(command):
             char = command[index]
             if char == chr(92) and quote != "'":
+                if command[index:index + 2] != chr(92) + '\n':
+                    word_start = False
                 index += 2
+                continue
+            if quote is None and char == '#' and word_start:
+                newline = command.find('\n', index)
+                index = len(command) if newline == -1 else newline
                 continue
             if quote == "'":
                 if char == "'":
@@ -240,6 +257,7 @@ def _shell_substitutions(command):
                     parentheses -= 1
                 elif terminator == ')':
                     return index
+            word_start = quote is None and (char.isspace() or char in ';&|()')
             index += 1
         if terminator:
             raise ValueError('Unterminated shell substitution')
@@ -322,7 +340,6 @@ def native_codex_hook_state(paths: Paths, app: Path) -> str:
                     continue
                 command = hook['command']
                 try:
-                    tokens = _shell_tokens(command)
                     roles = _status_command_roles(command)
                 except ValueError:
                     conflict = True
@@ -332,6 +349,7 @@ def native_codex_hook_state(paths: Paths, app: Path) -> str:
                     continue
                 found = True
                 try:
+                    tokens = _shell_tokens(command)
                     executable = Path(tokens[0]) if tokens else Path('.')
                     matches = executable.is_absolute() and executable.resolve(strict=True) == expected
                     valid = (hook.get('type') == 'command' and matches and
