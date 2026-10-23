@@ -156,3 +156,30 @@ def _restore_hooks(context):
     if not changed:
         return None
     return FileEdit(path,before,(json.dumps(document,ensure_ascii=False,indent=2)+'\n').encode(),0o600,'restore')
+
+
+def restores_legacy_status(resources, remove_pairs, context):
+    """Whether this removal would reactivate a receipt-owned legacy writer."""
+    target = str((context.paths.codex_home/'config.toml').resolve())
+    for resource in resources:
+        if (resource['kind'] != 'toml' or resource['target'] != target or
+                not set(resource['owners']) & remove_pairs or
+                any(not owner.startswith('shared:') for owner in set(resource['owners']) - remove_pairs)):
+            continue
+        pointer = resource['locator'].get('pointer',[])
+        if (len(pointer) == 3 and pointer[0] == 'plugins' and pointer[2] == 'enabled'
+                and pointer[1].split('@',1)[0] in {'iterm2-status','codex-iterm2-status'}
+                and resource['before'] == {'exists':True,'value':True}
+                and resource['installed'] == {'exists':True,'value':False}):
+            return True
+    return False
+
+
+def pending_native_status(receipt, context):
+    """An owned old writer must migrate before other shared runtime switches."""
+    target = str((context.paths.config/'runtime.json').resolve())
+    settings = {tuple(resource['locator'].get('pointer',())):resource['installed']
+                for resource in receipt.resources if resource['kind']=='json'
+                and resource['target']==target and 'shared:hooks' in resource['owners']}
+    return (settings.get(('status',)) == {'exists':True,'value':True}
+            and settings.get(('status_backend',)) != {'exists':True,'value':'cc-status'})

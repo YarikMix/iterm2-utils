@@ -20,6 +20,8 @@ class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
             else: edit.path.write_bytes(edit.after)
         shutil.rmtree(checkout)
         self.assertTrue((self.context.paths.data/'current/codex.zsh').is_file())
+        self.assertTrue((self.context.paths.data/'current/native_status.py').is_file())
+        self.assertFalse(any(e.path.name in {'cc-status','it2'} for e in changes.edits))
         self.assertFalse(any(str(checkout).encode() in e.after for e in changes.edits if isinstance(e,FileEdit)))
         self.assertTrue(changes.consumers)
         import subprocess

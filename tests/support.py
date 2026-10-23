@@ -9,10 +9,13 @@ from unittest.mock import patch
 class FakeRunner:
     def __init__(self):
         self.calls = []
-        self.responses = {'python3':'Python 3.11.9'}
+        self.environments = []
+        self.responses = {'python3':'Python 3.11.9',
+                          'it2':'session-status set-status --background-tasks --background-tasks-delta --turn-open --if-turn-open --if-background-tasks --json'}
 
     def run(self, argv, *, timeout, stdin=None, env=None):
         self.calls.append((argv, timeout, stdin))
+        self.environments.append(env)
         name = Path(argv[0]).name
         return subprocess.CompletedProcess(argv, 0, self.responses.get(name, '1.0 --no-daemon session-status python-api'), '')
 
@@ -39,7 +42,12 @@ class Fixture:
         binary = self.app / 'Contents/MacOS/iTerm2'
         binary.write_text('#!/bin/sh\n')
         binary.chmod(0o755)
-        it2 = self.app / 'Contents/Resources/it2'
+        utilities = self.app / 'Contents/Resources/utilities'
+        utilities.mkdir()
+        native = utilities / 'cc-status'
+        native.write_text('#!/bin/sh\nexit 0\n')
+        native.chmod(0o755)
+        it2 = utilities / 'it2'
         it2.write_text('#!/bin/sh\n')
         it2.chmod(0o755)
         self.env = patch.dict(os.environ, {'HOME': str(self.home), 'PATH': str(self.bin), 'ITERM2_APP': str(self.app), 'SHELL': str(self.bin / 'zsh')}, clear=True)

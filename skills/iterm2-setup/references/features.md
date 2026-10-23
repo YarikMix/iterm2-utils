@@ -3,7 +3,7 @@
 | Feature | Result and boundary | Additional dependency |
 | --- | --- | --- |
 | `clipboard` | Codex manual Cmd+C/Ctrl+C in EN/RU, selection auto-copy off | Codex |
-| `status` | Working/waiting/idle for an explicit tab UUID; Claude native cc-status | Python 3.11+, supported iTerm2 capability |
+| `status` | Native working/waiting/done/idle for an explicit tab UUID; error depends on a verified event source | Python 3.11+; Codex requires compatible iTerm2 3.7.6+ cc-status/it2 pair |
 | `notifications` | Completion/attention notifications, independently of visible status | Python 3.11+, terminal-notifier |
 | `restore` | Codex conversation chooser, explicit selection before launch | Python 3.11+, fzf, compatible Codex --no-daemon |
 | `mcp` | Separately selected terminal-reading MCP for selected agents | uvx; server Python 3.12+, Python API and human authorization |
@@ -35,6 +35,26 @@ Do not replace another server with the same name or expose its secrets.
 Hooks target an explicit tab UUID; never substitute the active tab. Trust is
 confirmed by the human. Existing status installations and migration conflicts
 are reported; adopting legacy resources requires an explicit migration choice.
+
+Selected Codex status uses this package's existing plan/install workflow to
+register the adapter and 12 verified lifecycle hooks. There is no ready native
+Codex installer in the iTerm2 menu. Claude keeps its official integration menu;
+select only API, hooks and Session Status, leaving Workgroup and Auto-Enter off.
+Do not ask for another feature choice or confirmation when the caller already
+selected it. Explain new-session/human hook-trust requirements from findings.
+
+Codex 0.163.0 has no StopFailure, Notification or PostToolUseFailure hook. Its
+Stop payload cannot establish an API failure: native error rendering is not a
+promise of automatic Codex API-error display. Doctor reports this as nonblocking
+`codex_error_event: limited`; unknown versions have an unverified error source.
+
+A complete external native hook set is reused without ownership or a second
+status writer; adapter-only input/compact behavior is unavailable for that set.
+An active recognized external legacy plugin is reused as a legacy backend, not
+silently migrated. Include existing `--adopt-legacy` in plan/install only when
+explicit migration was chosen. Owned beta.1 hooks migrate through update.
+Notifications remain separately selected and keep their legacy transition model
+only for notification decisions; it no longer writes visible Codex status.
 
 ## Independent agent choices and runtime requirements
 

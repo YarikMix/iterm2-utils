@@ -59,7 +59,10 @@ class FinalFixTests(WorkflowFixture):
     def test_i4_live_codex_does_not_require_claude(self):
         self.assertSuccess(self.install('status'))
         self.runner.responses['it2'] = '{"status":"idle"}'
-        with patch.dict(os.environ, {'ITERM_SESSION_ID':'11111111-2222-3333-4444-555555555555'}):
+        with patch.dict(os.environ, {
+                'ITERM_SESSION_ID':'11111111-2222-3333-4444-555555555555',
+                'TERM_SESSION_ID':'w0t0p0:11111111-2222-3333-4444-555555555555',
+                'TMUX':''}, clear=True):
             result = self.setup_cli(['doctor','--live'])
         self.assertFalse([f for f in result['report']['findings'] if f['agent']=='claude'], result)
         self.assertEqual(result['exit_code'], 0, result)

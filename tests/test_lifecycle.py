@@ -14,7 +14,7 @@ class LifecycleFixture(unittest.TestCase):
         self.tmp = TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         p = Path(self.tmp.name)
         paths = Paths(p, p/'.zshrc', p/'codex', p/'claude/settings.json', p/'config', p/'cache', p/'data', p/'profiles', Path(__file__).resolve().parents[1])
-        self.context = Context(paths, {n:p/'bin'/n for n in ('iterm2','it2','zsh','python3','codex','claude','terminal-notifier','fzf','uvx','osascript')}, {'fzf':'0.60.0','python3':'3.11.9'}, frozenset({'macos','codex:no-daemon','iterm2:session-status','codex:approval-notifications','codex:alt-enter','claude:alt-enter'}), {'Default':{'Name':'Default','Keyboard Map':{'foreign':{'Action':1}}}}, {})
+        self.context = Context(paths, {n:p/'bin'/n for n in ('iterm2','it2','zsh','python3','codex','claude','terminal-notifier','fzf','uvx','osascript')}, {'fzf':'0.60.0','python3':'3.11.9','iterm2':'3.7.6'}, frozenset({'macos','codex:no-daemon','iterm2:session-status','iterm2:cc-status-codex','codex:approval-notifications','codex:alt-enter','claude:alt-enter'}), {'Default':{'Name':'Default','Keyboard Map':{'foreign':{'Action':1}}}}, {})
         self.runner = FakeRunner(); self.preferences = {}; self.registrations = {}
         def pref_read(runner, domain, key):
             return {'exists':key in self.preferences,'value':self.preferences.get(key)}
@@ -27,6 +27,23 @@ class LifecycleFixture(unittest.TestCase):
             else: self.registrations[edit.agent,edit.name] = edit.after
         for name, side in [('preferences.read',pref_read),('preferences.write',pref_write),('registration_adapter.inspect',reg_inspect),('registration_adapter.apply',reg_apply)]:
             mock = patch('iterm2_utils.engine.'+name,side_effect=side);mock.start();self.addCleanup(mock.stop)
+
+    def external_native(self):
+        """Materialize real discovery inputs, including the selected fake bundle."""
+        import shlex
+        from runtime.events import CODEX_EVENTS
+        binary=self.context.executables['iterm2']/'Contents/Resources/utilities/cc-status'
+        binary.parent.mkdir(parents=True,exist_ok=True)
+        binary.write_text('#!/bin/sh\nexit 0\n');binary.chmod(0o700)
+        path=self.context.paths.codex_home/'hooks.json'
+        path.parent.mkdir(exist_ok=True)
+        document=json.loads(path.read_bytes()) if path.exists() else {'hooks':{}}
+        native={event:[{'hooks':[{'type':'command','command':shlex.join([str(binary),'--agent','codex']),'timeout':3}]}]
+                for event in CODEX_EVENTS if event not in {'PreCompact','PostCompact'}}
+        for event,entries in native.items():
+            document['hooks'].setdefault(event,[]).extend(entries)
+        path.write_text(json.dumps(document))
+        return native
 
     def selection(self, *features, agents=('codex',), shortcuts=()):
         return Selection(frozenset(agents),frozenset(features),frozenset(shortcuts),'Default')
@@ -42,7 +59,7 @@ class LifecycleFixture(unittest.TestCase):
 
 class LifecycleTests(LifecycleFixture):
     def test_failed_feature_does_not_rollback_independent_completed_feature(self):
-        self.context.capabilities -= {'iterm2:session-status'}
+        self.context.capabilities -= {'iterm2:cc-status-codex'}
         result = self.install('status','notifications')
         self.assertNotIn('status',result.receipt.selection.features)
         self.assertIn('notifications',result.receipt.selection.features)
@@ -221,3 +238,100 @@ class LifecycleTests(LifecycleFixture):
         self.assertTrue(any(f.code=='missing_parent' for f in result.findings))
         self.assertEqual(result.receipt,initial.receipt)
         self.assertEqual(self.snapshot(),before)
+
+    def test_external_native_after_owned_status_blocks_without_mutation(self):
+        self.assertSuccess(self.install('status'))
+        settings=self.context.paths.config/'runtime.json'
+        self.assertTrue(json.loads(settings.read_bytes())['status'])
+        self.external_native()
+        before=self.snapshot()
+        result=lifecycle.update(self.context,self.runner)
+        self.assertTrue(any(f.code=='native_hook_conflict' and f.state=='conflict' for f in result.findings))
+        self.assertEqual(self.snapshot(),before)
+        self.assertIn('status',result.receipt.selection.features)
+        status_resource=next(r for r in result.receipt.resources if r['target']==str(settings.resolve()) and r['locator'].get('pointer')==['status'])
+        self.assertEqual(status_resource['installed'],{'exists':True,'value':True})
+
+    def test_native_dependency_does_not_block_notifications_or_restore(self):
+        self.context.capabilities -= {'iterm2:cc-status-codex'}
+        result=self.install('status','notifications','restore')
+        self.assertEqual(result.receipt.selection.features,{'notifications','restore'})
+        settings=json.loads((self.context.paths.config/'runtime.json').read_bytes())
+        self.assertFalse(settings['status'])
+        self.assertTrue(settings['notifications'])
+        self.assertTrue(settings['restore'])
+
+    def test_repeated_native_status_install_keeps_one_shared_hook(self):
+        self.assertSuccess(self.install('status'))
+        self.assertSuccess(self.install('status'))
+        hooks=json.loads((self.context.paths.codex_home/'hooks.json').read_bytes())['hooks']
+        self.assertEqual(len(hooks),12)
+        self.assertTrue(all(len(v)==1 for v in hooks.values()))
+
+    def test_install_agent_feature_matrix_keeps_flags_and_ownership_exact(self):
+        cases=[({'codex':['status']},True,[],False),
+               ({'codex':['notifications']},False,['codex'],False),
+               ({'codex':['restore']},False,[],True),
+               ({'claude':['notifications']},False,['claude'],False),
+               ({'codex':['status'],'claude':['notifications']},True,['claude'],False),
+               ({'codex':['notifications'],'claude':['status']},False,['codex'],False)]
+        for agent_features,want_status,want_notifications,want_restore in cases:
+            with self.subTest(agent_features=agent_features):
+                fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+                selection=Selection(frozenset(agent_features),frozenset(f for fs in agent_features.values() for f in fs),frozenset(),'Default',agent_features=agent_features)
+                result=lifecycle.install(fixture.context,selection,fixture.runner)
+                fixture.assertSuccess(result)
+                settings=json.loads((fixture.context.paths.config/'runtime.json').read_bytes())
+                self.assertEqual(settings['status'],want_status)
+                self.assertEqual(settings['notification_agents'],want_notifications)
+                self.assertEqual(settings['notifications'],bool(want_notifications))
+                self.assertEqual(settings['restore'],want_restore)
+                self.assertEqual(result.receipt.selection.pairs,selection.pairs)
+                runtime_owners={o for resource in result.receipt.resources if 'shared:runtime' in resource['owners'] for o in resource['owners'] if not o.startswith('shared:')}
+                expected={a+':'+f for a,fs in agent_features.items() for f in fs if a=='codex' or f=='notifications'}
+                self.assertEqual(runtime_owners,expected)
+
+    def test_native_reuse_keeps_external_hooks_outside_receipt(self):
+        path=self.context.paths.codex_home/'hooks.json'
+        native=self.external_native()
+        self.assertSuccess(self.install('status','restore'))
+        result=lifecycle.update(self.context,self.runner);self.assertSuccess(result)
+        self.assertFalse(json.loads((self.context.paths.config/'runtime.json').read_bytes())['status'])
+        self.assertIn('codex.zsh',self.context.paths.zshrc.read_text())
+        resources=[r for r in result.receipt.resources if r['kind']=='hook']
+        self.assertEqual(len(resources),12)
+        self.assertTrue(all('current/hook.py' in r['locator']['entry']['hooks'][0]['command'] for r in resources))
+        hooks=json.loads(path.read_bytes())['hooks']
+        for event,entries in native.items():
+            self.assertIn(entries[0],hooks[event])
+            self.assertEqual(len(hooks[event]),2)
+
+    def test_native_collision_blocks_retained_writer_shared_recomposition(self):
+        for feature,agent in (('notifications','codex'),('restore','codex'),('notifications','claude')):
+            with self.subTest(feature=feature,agent=agent):
+                fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+                fixture.assertSuccess(fixture.install('status'))
+                fixture.external_native()
+                before=fixture.snapshot()
+                result=fixture.install(feature,agents=(agent,))
+                self.assertTrue(any(f.state=='conflict' for f in result.findings))
+                self.assertNotIn(feature,result.receipt.selection.features)
+                self.assertEqual(fixture.snapshot(),before)
+
+    def test_native_codex_collision_keeps_claude_status_ui_independent(self):
+        for retained_notifications in (False,True):
+            with self.subTest(retained_notifications=retained_notifications):
+                fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+                fixture.assertSuccess(fixture.install('status'))
+                if retained_notifications:
+                    fixture.assertSuccess(fixture.install('notifications',agents=('claude',)))
+                fixture.external_native()
+                paths=[fixture.context.paths.config/'runtime.json',fixture.context.paths.codex_home/'hooks.json',fixture.context.paths.claude_settings]
+                before={path:path.read_bytes() if path.exists() else None for path in paths}
+                result=fixture.install('status',agents=('claude',))
+                fixture.assertSuccess(result)
+                expected={'codex:status','claude:status'} | ({'claude:notifications'} if retained_notifications else set())
+                self.assertEqual(result.receipt.selection.pairs,expected)
+                self.assertEqual([(s.code,s.agent) for s in result.receipt.pending_ui],[('claude-native-status','claude')])
+                self.assertIn('claude-native-status',result.receipt.ui_snapshots)
+                self.assertEqual({path:path.read_bytes() if path.exists() else None for path in paths},before)

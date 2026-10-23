@@ -23,7 +23,10 @@ def _dispatcher(selection):
 
 
 def _consumers(selection):
-    return (selection.features & (DEPENDENTS | {'shell'}))
+    return frozenset(a+':'+feature for a in selection.agents
+                     for feature in selection.features_for(a)
+                     if feature=='shell' or a=='codex' and feature in DEPENDENTS
+                     or a=='claude' and feature=='notifications')
 
 
 def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
@@ -125,7 +128,7 @@ def build(context: Context, selection: Selection) -> ChangeSet:
         if lines or 'root' in managed:
             after = zshrc.block(base,'root','\n'.join(lines) if lines else None)
             changes.edits.append(FileEdit(path,before,after,0o600,OWNER))
-            changes.consumers[OWNER] = frozenset((selection.features_for('codex') & DEPENDENTS if dispatch else frozenset()) | ({'shell'} if marks else set()))
+            changes.consumers[OWNER] = frozenset(p for p in _consumers(selection) if p.endswith(':shell') or dispatch and p.startswith('codex:'))
     except (ValueError, UnicodeError):
         changes.findings.append(Finding('shell',None,'shell_conflict','conflict','Shell startup contains conflicting or ambiguous managed integration; explicit migration is required.'))
     return changes

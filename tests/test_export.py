@@ -8,6 +8,7 @@ import sys
 import tarfile
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from tools import build_release, check_export
 
@@ -15,6 +16,23 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ExportTests(unittest.TestCase):
+    def test_export_requires_unique_native_contract_paths(self):
+        required = {'runtime/native_status.py', 'tests/test_native_status.py',
+                    'tests/test_native_status_migration.py', 'tests/fixtures/beta1-status.json',
+                    'docs/native-status-events.md'}
+        self.assertTrue(required <= set(check_export.EXPORT_FILES))
+        self.assertEqual(len(check_export.EXPORT_FILES), len(set(check_export.EXPORT_FILES)))
+        sources = {entry['path']: entry for entry in json.loads((ROOT/'sources.lock.json').read_text())['sources']}
+        for name in ('vendor/codex_status/status.py', 'vendor/codex_status/iterm_support.py'):
+            self.assertIn(name, check_export.EXPORT_FILES)
+            self.assertEqual(hashlib.sha256((ROOT/name).read_bytes()).hexdigest(), sources[name]['sha256'])
+            self.assertEqual(sources[name]['license_file'], 'vendor/codex_status/LICENSE')
+            self.assertEqual(sources[name]['attribution_file'], 'THIRD_PARTY_NOTICES.md')
+        self.assertFalse(any(Path(name).name in {'cc-status', 'it2'} for name in sources))
+        with patch.object(check_export, 'EXPORT_FILES',
+                          (*check_export.EXPORT_FILES, 'runtime/native_status.py')):
+            self.assertIn('Duplicate export path: runtime/native_status.py', check_export.check(ROOT))
+
     def fixture(self, folder):
         repo = folder/'repo'
         for name in check_export.EXPORT_FILES:
@@ -28,20 +46,29 @@ class ExportTests(unittest.TestCase):
             root = Path(tmp); repo = self.fixture(root)
             for name in ('.env', '.env.production', '.git/config', 'tests/fixtures/private.json',
                          'runtime/.env.py', 'runtime/receipt.json', 'runtime/backup.py',
-                         'logs/transcript.jsonl', 'auth/token', 'runtime/__pycache__/secret.pyc'):
+                         'logs/transcript.jsonl', 'auth/token', 'runtime/__pycache__/secret.pyc',
+                         'runtime/raw-event.json', 'runtime/cc-status', 'runtime/it2',
+                         'Applications/iTerm.app/Contents/Resources/utilities/cc-status',
+                         'Applications/iTerm.app/Contents/Resources/utilities/it2'):
                 path = repo/name; path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes((b'PRIVATE_' + b'FIXTURE_MARKER'))
             archive = build_release.build(repo, root/'dist')
             self.assertNotIn((b'PRIVATE_' + b'FIXTURE_MARKER'), archive.read_bytes())
             with tarfile.open(archive) as tar:
                 members = tar.getmembers()
+                self.assertEqual(len(members), len(check_export.EXPORT_FILES))
                 names = {m.name.split('/', 1)[1] for m in members if '/' in m.name}
+                self.assertEqual(len(names), len(members))
                 self.assertIn('skills/iterm2-setup/SKILL.md', names)
                 self.assertIn('vendor/codex_status/LICENSE', names)
                 for member in members:
                     self.assertTrue(member.isfile())
                     self.assertNotIn((b'PRIVATE_' + b'FIXTURE_MARKER'), tar.extractfile(member).read())
                 self.assertEqual(names, set(check_export.EXPORT_FILES))
+                self.assertTrue({'runtime/native_status.py', 'tests/test_native_status.py',
+                                 'tests/test_native_status_migration.py',
+                                 'tests/fixtures/beta1-status.json',
+                                 'docs/native-status-events.md'} <= names)
             checksum = archive.with_name(archive.name+'.sha256').read_text()
             self.assertEqual(checksum, hashlib.sha256(archive.read_bytes()).hexdigest()+'  '+archive.name+'\n')
             self.assertNotIn(str(root), checksum)
@@ -92,7 +119,9 @@ class ExportTests(unittest.TestCase):
 
     def isolated_env(self, home):
         return {'HOME': str(home), 'PATH': '/usr/bin:/bin', 'PYTHONNOUSERSITE': '1',
-                'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': ''}
+                'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONPATH': '', 'TMUX': '',
+                'ITERM_SESSION_ID': '12345678-1234-1234-1234-123456789abc',
+                'TERM_SESSION_ID': 'w0t0p0:12345678-1234-1234-1234-123456789abc'}
 
     def run_python(self, extracted, home, *args):
         home.mkdir(exist_ok=True)
@@ -129,39 +158,82 @@ assert not check(pathlib.Path.cwd())
                                     'tests.test_skill_install', 'tests.test_lifecycle', '-v')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             # Runtime installed into a fixture must survive removal of its extracted source too.
-            script = '''import json, pathlib, subprocess, sys
+            script = r'''import json, os, pathlib, subprocess, sys
 from tests.test_lifecycle import LifecycleFixture
 f=LifecycleFixture(); f.setUp()
 try:
     result=f.install('status','notifications','restore','shell')
     assert not [x for x in result.findings if x.state in {'conflict','unavailable','missing_dependency'}]
     current=f.context.paths.data/'current'
+    settings=f.context.paths.config/'runtime.json'
+    configured=json.loads(settings.read_text())
+    assert configured['status_backend']=='cc-status'
+    app=pathlib.Path(configured['iterm2_app'])
+    utilities=app/'Contents/Resources/utilities'
+    utilities.mkdir(parents=True)
+    capture=f.context.paths.home/'native-calls.jsonl'
+    trap=f.context.paths.home/'path-fallback'
+    fake_path=f.context.paths.home/'fake-path'
+    fake_path.mkdir()
+    for name in ('cc-status','it2'):
+        path=fake_path/name
+        path.write_text('#!'+sys.executable+'\nfrom pathlib import Path\nPath('+repr(str(trap))+').touch()\n')
+        path.chmod(0o700)
+    def replace_utilities(version):
+        native=utilities/'cc-status'
+        native.write_text('#!'+sys.executable+'\n'+
+            'import json, os, pathlib, subprocess, sys\n'+
+            'sibling=subprocess.check_output([str(pathlib.Path(__file__).with_name("it2"))],text=True).strip()\n'+
+            'record={"version":'+repr(version)+',"sibling":sibling,"argv":sys.argv,"payload":json.load(sys.stdin),'+
+            '"terminal":os.environ["TERM_SESSION_ID"],"iterm":os.environ["ITERM_SESSION_ID"]}\n'+
+            'with open('+repr(str(capture))+',"a") as stream: stream.write(json.dumps(record)+"\\n")\n')
+        native.chmod(0o700)
+        sibling=utilities/'it2'
+        sibling.write_text('#!'+sys.executable+'\nprint('+repr(version)+')\n')
+        sibling.chmod(0o700)
+    replace_utilities('before-update')
+    runtime_bytes={str(p.relative_to(current)):p.read_bytes() for p in current.rglob('*') if p.is_file()}
+    assert not {'cc-status','it2','receipt.json','raw-event.json'} & {pathlib.Path(p).name for p in runtime_bytes}
+    assert all(not pathlib.Path(r['target']).is_relative_to(app) for r in result.receipt.resources)
     notices={name: pathlib.Path(name).read_bytes() for name in ('LICENSE','THIRD_PARTY_NOTICES.md')}
     import shutil
     shutil.rmtree(pathlib.Path.cwd())
     for name, expected in notices.items():
         assert (current/name).read_bytes()==expected
-    smoke = """import importlib, pathlib
-for path in pathlib.Path('.').rglob('*.py'):
-    importlib.import_module('.'.join(path.with_suffix('').parts))
-from events import normalize
-from hook import dispatch
-class Runner:
-    def __init__(self): self.calls=[]
-    def run(self,argv,**kwargs):
-        from subprocess import CompletedProcess
-        self.calls.append(argv)
-        return CompletedProcess(argv,0,'','')
-r=Runner()
-e=normalize({'hook_event_name':'UserPromptSubmit','session_id':'fixture-session'},'codex','w0t0p0:12345678-1234-1234-1234-123456789abc')
-assert e is not None
-import tempfile
-with tempfile.TemporaryDirectory() as cache:
-    dispatch(e,{'status':True,'it2':'fixture-it2','cache':cache},r)
-assert r.calls, 'Installed dispatcher did not reach fake transport'
-"""
-    r=subprocess.run([sys.executable,'-c',smoke],cwd=current,capture_output=True,text=True)
-    assert r.returncode==0, r.stdout+r.stderr
+    env=dict(os.environ, HOME=str(f.context.paths.home),PATH=str(fake_path),PYTHONPATH='',TMUX='')
+    uuid='12345678-1234-1234-1234-123456789abc'
+    env['TERM_SESSION_ID']=env['ITERM_SESSION_ID']='w0t0p0:'+uuid
+    raw={'hook_event_name':'UserPromptSubmit','session_id':'fixture-session','prompt':'PRIVATE_EVENT_SENTINEL'}
+    def invoke():
+        r=subprocess.run([sys.executable,str(current/'hook.py'),'--settings',str(settings),'--agent','codex'],
+                         input=json.dumps(raw),cwd=f.context.paths.home,env=env,
+                         capture_output=True,text=True,timeout=3)
+        assert (r.returncode,r.stdout,r.stderr)==(0,'{}\n',''), (r.returncode,r.stdout,r.stderr)
+    invoke()
+    replace_utilities('after-update')
+    invoke()
+    calls=[json.loads(line) for line in capture.read_text().splitlines()]
+    assert len(calls)==2, calls
+    assert [c['version'] for c in calls]==['before-update','after-update']
+    assert [c['sibling'] for c in calls]==['before-update','after-update']
+    for call in calls:
+        assert call['argv']==[str(utilities/'cc-status'),'--agent','codex'], call
+        assert call['payload']=={'hook_event_name':'UserPromptSubmit'}, call
+        assert call['terminal']==call['iterm']=='w0t0p0:'+uuid.upper()
+    for missing in ('cc-status','it2'):
+        replace_utilities('unavailable')
+        (utilities/missing).unlink()
+        invoke()
+        assert len(capture.read_text().splitlines())==2
+    assert not trap.exists(), 'Native transport searched PATH'
+    configured['status']=False
+    settings.write_text(json.dumps(configured))
+    replace_utilities('disabled')
+    invoke()
+    assert len(capture.read_text().splitlines())==2
+    assert runtime_bytes=={str(p.relative_to(current)):p.read_bytes() for p in current.rglob('*') if p.is_file()}
+    for folder in (f.context.paths.config, f.context.paths.cache, f.context.paths.data):
+        assert all(b'PRIVATE_EVENT_SENTINEL' not in p.read_bytes() for p in folder.rglob('*') if p.is_file())
     r=subprocess.run([sys.executable,str(current/'codex_restore/codex-sessions'),'--help'],cwd=f.context.paths.home,capture_output=True,text=True)
     assert r.returncode==0, r.stderr
 finally:

@@ -3,7 +3,7 @@ import copy
 import json
 import shlex
 from dataclasses import replace
-from . import engine, state
+from . import engine, migration, state
 from .config import jsonfile, mcp, zshrc
 from .discovery import status_installations
 from .models import ChangeSet, Finding, Outcome, Plan, Receipt, Selection, FileEdit
@@ -28,10 +28,11 @@ def _problem(receipt, code='ownership_unavailable', message='No valid ownership 
 def _context(context):
     # Refresh only public integration markers; never trust stale ownership hints.
     installed = dict(context.installed)
-    installed.pop('codex-status',None)
     detected = status_installations(context.paths,context.executables.get('iterm2'))
-    if 'codex-status' in detected:
-        installed['codex-status'] = detected['codex-status']
+    for key in ('codex-status','codex-native-status'):
+        installed.pop(key,None)
+        if key in detected:
+            installed[key] = detected[key]
     return replace(context,installed=installed)
 
 
@@ -87,7 +88,11 @@ def install(context, selection, runner, *, dry_run=False):
             migration_group = {feature for name,feature in {'legacy-status':'status','legacy-restore':'restore'}.items() if name in blocks}
         except (ValueError,OSError):
             pass
-    for feature, agent in [(f,a) for f in ORDER for a in sorted(selection.agents_for(f))]:
+    # Migrate an existing visible writer before any other consumer switches the
+    # shared runtime. A failed status checkpoint must also gate later consumers.
+    native_pending = migration.pending_native_status(previous,context)
+    order = ('status',)+tuple(f for f in ORDER if f!='status') if native_pending else ORDER
+    for feature, agent in [(f,a) for f in order for a in sorted(selection.agents_for(f))]:
         if feature+':'+agent in processed:
             continue
         active = migration_group if feature in migration_group and migration_group <= selection.features else {feature}
@@ -119,6 +124,11 @@ def install(context, selection, runner, *, dry_run=False):
         prepared.changes.edits = [edit for edit in prepared.changes.edits
             if edit.owner in active_pairs or active_pairs & set(prepared.changes.consumers.get(edit.owner,()))]
         prepared.changes.ui = [step for step in prepared.changes.ui if step.feature in active and step.agent in {None, agent}]
+        if (native_pending and 'codex:status' not in active_pairs
+                and any(edit.owner=='shared:runtime' for edit in prepared.changes.edits)):
+            findings.append(Finding(feature,agent,'status_migration_required','conflict',
+                'The owned Codex status migration must succeed before another consumer can switch its shared runtime; run update and resolve its status conflicts.'))
+            continue
         if feature in working.selection.features_for(agent):
             pending_codes = {step.code for step in working.pending_ui}
             try:
@@ -150,6 +160,8 @@ def install(context, selection, runner, *, dry_run=False):
             if step not in prepared.changes.ui:
                 prepared.changes.ui.append(step)
         if dry_run:
+            if 'codex:status' in active_pairs:
+                native_pending = False
             findings.extend(prepared.changes.findings)
             working = Receipt(state.VERSION,chosen,working.resources,prepared.changes.ui,snapshots)
             continue
@@ -157,6 +169,7 @@ def install(context, selection, runner, *, dry_run=False):
         findings.extend(result.findings)
         if not any(f.state in BLOCKING for f in result.findings):
             working = result.receipt
+            native_pending = migration.pending_native_status(working,context)
             expected_receipt = working
             for completed in sorted(active):
                 pending = any(s.feature==completed for s in working.pending_ui)
@@ -195,13 +208,23 @@ def uninstall(context, owners, runner, *, dry_run=False, agents=None):
     if not remove_pairs:
         return Outcome(receipt, [])
     normalized = engine.pair_resources(receipt.resources, receipt.selection, context)
+    refreshed = _context(context)
+    if (refreshed.installed.get('codex-native-status')
+            and migration.restores_legacy_status(normalized,remove_pairs,context)):
+        return _problem(receipt,'legacy_status_restore_conflict',
+            'External native hooks prevent restoring the adopted legacy status writer; resolve the competing integration before uninstalling.')
     # Recompose shared files and remove exclusive resources in ONE transaction.
-    prepared = plan(_context(context),selection) if selection.features else Plan(selection,ChangeSet([],[],[]),'uninstall')
+    prepared = plan(refreshed,selection) if selection.features else Plan(selection,ChangeSet([],[],[]),'uninstall')
     affected_shared = {owner for r in normalized if set(r['owners']) & remove_pairs
                        for owner in r['owners'] if owner.startswith('shared:')}
-    # Runtime files need only consumer removal. Rebuild declarative settings,
-    # profiles and shell blocks; never re-register an unrelated retained MCP.
-    affected_shared.discard('shared:runtime')
+    # Ordinarily runtime files need only consumer removal. If recomposition
+    # migrates a retained old status writer, switch its runtime in this same
+    # transaction so native settings never point at the beta.1 driver.
+    migrate_runtime = (migration.pending_native_status(receipt,context)
+                       and 'codex:status' in selection.pairs
+                       and 'shared:hooks' in affected_shared)
+    if not migrate_runtime:
+        affected_shared.discard('shared:runtime')
     prepared.changes.edits = [e for e in prepared.changes.edits if e.owner in affected_shared]
     # Required consumers come from the committed checkpoint, not from a builder
     # that may have failed before emitting its consumer map.
@@ -281,7 +304,9 @@ def reconcile_ui(context, code, runner):
 def doctor(context, receipt, runner):
     """Read-only verification; never recover journals or reconcile UI implicitly."""
     prepared = plan(_context(context), receipt.selection)
-    findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.code == 'native_status' and f.state == 'pending_ui']
+    findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.state == 'limited'
+                or f.code in {'status_backend','native_status_capability'}
+                or f.code == 'native_status' and f.state == 'pending_ui']
     # Reused configuration carries no ownership receipt. Check the selected
     # declarative addresses too, without applying the generated edits.
     for edit in prepared.changes.edits:

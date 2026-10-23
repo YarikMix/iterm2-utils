@@ -12,7 +12,7 @@ SHORTCUTS = frozenset({'ctrl-v-ru', 'alt-enter', 'ctrl-q', 'resume'})
 CODEX_ONLY = frozenset({'clipboard', 'restore'})
 DESCRIPTIONS = {
     'clipboard': 'Codex-only profile (&codex); tui.copy_on_select = "never"; shared iTerm2 CopySelection = false.',
-    'status': 'Session status for explicit tab UUIDs; Claude uses native cc-status integration.',
+    'status': 'Native cc-status for explicit tab UUIDs; Codex API error-event support is limited and reported separately.',
     'notifications': 'macOS notifications via terminal-notifier; separate from visible statuses.',
     'restore': 'Codex-only conversation chooser; never launches conversations without selection.',
     'mcp': 'Separate MCP runtime: mcp-server-iterm2==0.1.1, mcp<2. Gives access to terminal text.',
@@ -66,6 +66,8 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
                 add(feature, agent, 'python_api', 'pending_ui', 'Verify iTerm2 Settings > General > Magic > Enable Python API; connection and authorization are not yet verified.')
             if feature == 'restore' and agent == 'codex' and 'codex:no-daemon' not in context.capabilities:
                 add(feature, agent, 'no_daemon', 'unavailable', 'Codex --no-daemon capability was not detected; hook tab identity cannot be guaranteed.')
+    from .discovery import native_status_findings
+    findings.extend(native_status_findings(context, selection))
     return findings
 
 
@@ -83,8 +85,9 @@ def plan(context: Context, selection: Selection) -> Plan:
                'capabilities': sorted(context.capabilities)}
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     changes = ChangeSet([], [], findings)
-    # External status is reused without installing a competing shell/runtime copy.
-    reused = context.installed.get('codex-status',{}).get('enabled') and not selected.adopt_legacy
+    # Legacy reuse keeps its shell path; native reuse still needs --no-daemon.
+    reused = (context.installed.get('codex-status',{}).get('enabled')
+              and not context.installed.get('codex-native-status') and not selected.adopt_legacy)
     runtime_selection = selected.without({'status'}, {'codex'}) if reused else selected
     for builder, choice in ((migration.build,selected),(restore.build,selected),(profiles.build,selected),
                             (shell.runtime_payload,runtime_selection),(shell.build,runtime_selection),

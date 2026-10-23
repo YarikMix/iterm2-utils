@@ -13,6 +13,7 @@ EXPORT_FILES = (
     'README.md',
     'THIRD_PARTY_NOTICES.md',
     'docs/compatibility.md',
+    'docs/native-status-events.md',
     'docs/notification-events.md',
     'iterm2_utils/__init__.py',
     'iterm2_utils/__main__.py',
@@ -56,6 +57,7 @@ EXPORT_FILES = (
     'runtime/events.py',
     'runtime/focus.py',
     'runtime/hook.py',
+    'runtime/native_status.py',
     'runtime/notifier.py',
     'skills/iterm2-setup/SKILL.md',
     'skills/iterm2-setup/references/features.md',
@@ -63,6 +65,7 @@ EXPORT_FILES = (
     'skills/iterm2-setup/references/ui.md',
     'sources.lock.json',
     'tests/__init__.py',
+    'tests/fixtures/beta1-status.json',
     'tests/restore/__init__.py',
     'tests/restore/helpers.py',
     'tests/restore/test_cli.py',
@@ -83,6 +86,8 @@ EXPORT_FILES = (
     'tests/test_lifecycle.py',
     'tests/test_mcp.py',
     'tests/test_migration.py',
+    'tests/test_native_status.py',
+    'tests/test_native_status_migration.py',
     'tests/test_notifications_feature.py',
     'tests/test_notifier.py',
     'tests/test_payload.py',
@@ -119,7 +124,12 @@ def check(repo: Path) -> list[str]:
     repo = Path(repo).resolve()
     errors = []
     contents = {}
+    seen_paths = set()
     for name in EXPORT_FILES:
+        if name in seen_paths:
+            errors.append('Duplicate export path: '+name)
+            continue
+        seen_paths.add(name)
         path = repo/name
         # Reject links in any component, even links pointing back into the tree.
         if any(p.is_symlink() for p in (path, *path.parents) if p != repo.parent):
