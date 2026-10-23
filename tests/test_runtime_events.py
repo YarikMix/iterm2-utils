@@ -10,7 +10,7 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from runtime import events, hook
-from tests.support import FakeRunner
+from tests.support import FakeRunner, Fixture
 
 UUID='11111111-2222-3333-4444-555555555555'
 class RuntimeTests(unittest.TestCase):
@@ -65,12 +65,15 @@ class RuntimeTests(unittest.TestCase):
         hook.dispatch(events.Event('codex','Stop','s','active',None,None,None,False),{'status':True},runner)
         self.assertEqual(runner.calls,[])
     def test_late_stop_does_not_idle_new_turn(self):
-        with TemporaryDirectory() as tmp:
-            runner=FakeRunner(); settings={'status':True,'cache':tmp,'it2':'/fake/it2'}
+        with Fixture() as f:
+            runner=FakeRunner()
+            settings={'status':True,'status_backend':'cc-status','iterm2_app':str(f.app),
+                      'native_identity_cache':str(f.home/'identity')}
             for name,turn in [('UserPromptSubmit','one'),('UserPromptSubmit','two'),('Stop','one')]:
-                hook.dispatch(self.event(name,turn_id=turn),settings,runner)
+                hook.dispatch(self.event(name,turn_id=turn),settings,runner,
+                              environment={'TERM_SESSION_ID':UUID})
             self.assertEqual(len(runner.calls),2)
-            self.assertEqual(runner.calls[-1][0][runner.calls[-1][0].index('--status')+1],'working')
+            self.assertEqual(json.loads(runner.calls[-1][2])['hook_event_name'],'UserPromptSubmit')
     def test_notifications_only_does_not_call_set_status(self):
         runner=FakeRunner()
         hook.dispatch(self.event('Stop'),{'status':False,'notifications':True,'restore':False},runner)
@@ -81,15 +84,21 @@ class RuntimeTests(unittest.TestCase):
             with patch('sys.stdin',io.StringIO(payload)),contextlib.redirect_stdout(out):
                 self.assertEqual(hook.main([]),0)
             self.assertEqual(out.getvalue(),'{}\n');self.assertLess(time.monotonic()-start,3)
-    def test_private_payload_does_not_enter_cache_and_approval_pairs(self):
-        with TemporaryDirectory() as tmp:
-            runner=FakeRunner();settings={'status':True,'cache':tmp,'it2':'/fake/it2'}
+    def test_private_payload_does_not_enter_identity_cache(self):
+        with Fixture() as f:
+            runner=FakeRunner()
+            settings={'status':True,'status_backend':'cc-status','iterm2_app':str(f.app),
+                      'native_identity_cache':str(f.home/'identity')}
             for name,tool in [('UserPromptSubmit',{}),('PermissionRequest',{'command':'SECRET_COMMAND','description':'SECRET_DESCRIPTION'}),('PostToolUse',{'command':'SECRET_COMMAND'})]:
-                hook.dispatch(self.event(name,tool_name='Bash',tool_input=tool,prompt='SECRET_PROMPT',transcript_path='/SECRET_PATH'),settings,runner)
-            state=(Path(tmp)/(UUID+'.json')).read_text()
+                raw=dict(session_id='s',hook_event_name=name,tool_name='Bash',tool_input=tool,
+                         prompt='SECRET_PROMPT',transcript_path='/SECRET_PATH')
+                hook.dispatch(events.normalize(raw,'codex',UUID),settings,runner,
+                              raw_event=raw,environment={'ITERM_SESSION_ID':UUID})
+            state=(f.home/'identity'/(UUID+'.json')).read_text()
             for secret in ('SECRET_COMMAND','SECRET_DESCRIPTION','SECRET_PROMPT','SECRET_PATH'):
                 self.assertNotIn(secret,state)
-            self.assertEqual(json.loads(state)['status'],'working')
+            self.assertEqual(json.loads(state),{'session_id':'s','turn_id':None,'ended':False})
+            self.assertEqual(len(runner.calls),3)
     def test_installed_process_after_checkout_copy_removed(self):
         from dataclasses import replace
         import shutil
@@ -111,23 +120,29 @@ class RuntimeTests(unittest.TestCase):
                 if isinstance(edit,FileEdit):edit.path.write_bytes(edit.after)
                 elif isinstance(edit,SymlinkEdit):edit.path.symlink_to(edit.after)
             shutil.rmtree(repo)
-            fake=f.home/'fake-it2'
-            fake.write_text('#!'+sys.executable+'\nimport sys\nfrom pathlib import Path\nPath('+repr(str(f.home/'called'))+').write_text(repr(sys.argv))\n')
+            fake=f.app/'Contents/Resources/utilities/cc-status'
+            fake.write_text('#!'+sys.executable+'\nimport os,sys,json\nfrom pathlib import Path\nPath('+repr(str(f.home/'called'))+').write_text(json.dumps([sys.argv,os.environ["TERM_SESSION_ID"],json.load(sys.stdin)]))\n')
             fake.chmod(0o700)
-            settings=f.home/'runtime.json';settings.write_text(json.dumps({'status':True,'cache':str(f.home/'cache'),'it2':str(fake)}))
+            settings=f.home/'runtime.json';settings.write_text(json.dumps({'status':True,'status_backend':'cc-status','iterm2_app':str(f.app),'native_identity_cache':str(f.home/'identity'),'cache':str(f.home/'cache')}))
             env={'HOME':str(f.home),'ITERM_SESSION_ID':'w0t0p0:'+UUID}
             result=subprocess.run([sys.executable,str(context.paths.data/'current/hook.py'),'--agent','codex','--settings',str(settings)],input=json.dumps({'hook_event_name':'UserPromptSubmit','session_id':'s'}),text=True,capture_output=True,env=env,cwd=f.home,timeout=3)
             self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
-            self.assertIn(UUID,(f.home/'called').read_text())
+            called=json.loads((f.home/'called').read_text())
+            self.assertEqual(called[0],[str(fake),'--agent','codex'])
+            self.assertEqual(called[1],'w0t0p0:'+UUID)
+            self.assertEqual(called[2],{'hook_event_name':'UserPromptSubmit'})
+            self.assertFalse((f.home/'cache').exists())
     def test_timeout_and_failures_process_budget(self):
-        with TemporaryDirectory() as tmp:
-            root=Path(tmp);fake=root/'it2';cache=root/'cache'
-            settings=root/'runtime.json';settings.write_text(json.dumps({'status':True,'cache':str(cache),'it2':str(fake)}))
+        with Fixture() as f:
+            fake=f.app/'Contents/Resources/utilities/cc-status'
+            settings=f.home/'runtime.json'
+            settings.write_text(json.dumps({'status':True,'status_backend':'cc-status',
+                                           'iterm2_app':str(f.app),'native_identity_cache':str(f.home/'identity')}))
             command=[sys.executable,'-m','runtime.hook','--settings',str(settings)]
             for script in ('raise RuntimeError()','import time;time.sleep(9)'):
                 fake.write_text('#!'+sys.executable+'\n'+script+'\n');fake.chmod(0o700)
                 start=time.monotonic()
-                result=subprocess.run(command,input=json.dumps({'session_id':'s','hook_event_name':'UserPromptSubmit'}),env={'ITERM_SESSION_ID':UUID},text=True,capture_output=True,timeout=3)
+                result=subprocess.run(command,input=json.dumps({'session_id':'s','hook_event_name':'UserPromptSubmit'}),env={'ITERM_SESSION_ID':UUID,'HOME':str(f.home)},text=True,capture_output=True,timeout=3)
                 self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
                 self.assertLess(time.monotonic()-start,3)
     def test_missing_vendor_is_still_empty_json_zero(self):

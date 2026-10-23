@@ -9,11 +9,13 @@ from unittest.mock import patch
 class FakeRunner:
     def __init__(self):
         self.calls = []
+        self.environments = []
         self.responses = {'python3':'Python 3.11.9',
                           'it2':'session-status set-status --background-tasks --background-tasks-delta --turn-open --if-turn-open --if-background-tasks --json'}
 
     def run(self, argv, *, timeout, stdin=None, env=None):
         self.calls.append((argv, timeout, stdin))
+        self.environments.append(env)
         name = Path(argv[0]).name
         return subprocess.CompletedProcess(argv, 0, self.responses.get(name, '1.0 --no-daemon session-status python-api'), '')
 
