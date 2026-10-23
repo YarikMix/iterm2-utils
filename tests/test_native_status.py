@@ -396,6 +396,55 @@ class NativeStatusTests(unittest.TestCase):
         (self.utilities/'cc-status').write_text('bad executable')
         self.run_hook()
 
+    def constructor_cancellation_case(self, *, alarm, internal=False):
+        children = []
+        constructor_returned = []
+        method = '_execute_child' if internal else '__init__'
+        original = getattr(subprocess.Popen, method)
+        previous_interrupt = signal.getsignal(signal.SIGINT)
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        def expired(*args):
+            raise hook.HookBudgetExpired('inside constructor')
+        def init(child, *args, **kwargs):
+            original(child, *args, **kwargs)
+            children.append(child)
+            if alarm:
+                os.kill(os.getpid(), signal.SIGALRM)
+                constructor_returned.append(True)
+            else:
+                raise hook.HookBudgetExpired('constructor exception')
+        try:
+            signal.signal(signal.SIGALRM, expired)
+            with patch.object(subprocess.Popen, method, init):
+                with self.assertRaises(hook.HookBudgetExpired):
+                    hook.Runner().run([sys.executable, '-c', 'import time; time.sleep(30)'],
+                                      timeout=1, env=self.environment)
+            self.assertIs(signal.getsignal(signal.SIGALRM), expired)
+            self.assertIs(signal.getsignal(signal.SIGINT), previous_interrupt)
+            self.assertEqual(len(children), 1)
+            self.assertIsNotNone(children[0].returncode, 'constructor cancellation did not kill/reap child')
+            if alarm:
+                self.assertEqual(constructor_returned, [True], 'alarm must defer until child registration')
+        finally:
+            signal.signal(signal.SIGALRM, previous_handler)
+            for child in children:
+                try: os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                if child.stdout.closed:
+                    child.wait()
+                else:
+                    child.communicate()
+
+    def test_constructor_exception_after_spawn_kills_real_child(self):
+        for internal in (False, True):
+            with self.subTest(internal=internal):
+                self.constructor_cancellation_case(alarm=False, internal=internal)
+
+    def test_constructor_alarm_is_deferred_until_child_registration(self):
+        for internal in (False, True):
+            with self.subTest(internal=internal):
+                self.constructor_cancellation_case(alarm=True, internal=internal)
+
     def test_slow_settings_read_is_bounded(self):
         self.run_hook(prefix='import pathlib,time\npathlib.Path.read_text = lambda *a, **k: time.sleep(10)')
 

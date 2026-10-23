@@ -1,4 +1,5 @@
 """Installed observational dispatcher. Success and every failure emit only {}."""
+from contextlib import contextmanager, ExitStack
 import json
 import os
 from pathlib import Path
@@ -6,30 +7,65 @@ import signal
 import subprocess
 import sys
 import time
+import threading
 
 
 class HookBudgetExpired(BaseException):
     """Overall deadline must bypass ordinary per-handler error isolation."""
 
 
+@contextmanager
+def _defer_spawn_signals():
+    """Retain cancellation until Popen has published its child PID.
+
+    A signal mask would also be inherited by the executable. Temporarily queue
+    callable Python handlers instead; exec resets those handlers in the child.
+    Python delivers signals only on the main thread.
+    """
+    pending = []
+    try:
+        with ExitStack() as restore:
+            if threading.current_thread() is threading.main_thread():
+                for number in (signal.SIGALRM, signal.SIGINT):
+                    previous = signal.getsignal(number)
+                    if callable(previous):
+                        def defer(signum, frame, handler=previous):
+                            pending.append((handler, signum, frame))
+                        signal.signal(number, defer)
+                        restore.callback(signal.signal, number, previous)
+            yield
+    finally:
+        for handler, number, frame in pending:
+            handler(number, frame)
+
+
 class Runner:
     def run(self, argv: list[str], *, timeout: float,
             stdin: str | None = None, env: dict[str, str] | None = None
             ) -> subprocess.CompletedProcess:
-        child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE, text=True, env=env,
-                                 start_new_session=True)
+        # Own the object before __init__: even a constructor exception after
+        # spawning leaves a reference from which cleanup can obtain the PID.
+        child = subprocess.Popen.__new__(subprocess.Popen)
         try:
+            with _defer_spawn_signals():
+                child.__init__(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True, env=env,
+                               start_new_session=True)
             stdout, stderr = child.communicate(input=stdin, timeout=timeout)
         except BaseException:
-            # Also covers the overall alarm while communicate is waiting. Killing
-            # the whole group removes native's it2 child as well as native itself.
-            try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            finally:
-                child.communicate()
+            if getattr(child, 'pid', None) is not None:
+                # Remove native and its it2 child even on constructor cancellation.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                finally:
+                    try:
+                        child.communicate()
+                    except (OSError, ValueError):
+                        # Popen closes pipes if its constructor raises. The direct
+                        # child still belongs to us and must be reaped.
+                        child.wait()
             raise
         return subprocess.CompletedProcess(argv, child.returncode, stdout, stderr)
 

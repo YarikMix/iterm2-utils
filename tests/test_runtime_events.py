@@ -145,6 +145,38 @@ class RuntimeTests(unittest.TestCase):
                 result=subprocess.run(command,input=json.dumps({'session_id':'s','hook_event_name':'UserPromptSubmit'}),env={'ITERM_SESSION_ID':UUID,'HOME':str(f.home)},text=True,capture_output=True,timeout=3)
                 self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
                 self.assertLess(time.monotonic()-start,3)
+    def test_runner_cancellation_after_spawn_reaps_real_child(self):
+        import signal
+        children=[]
+        injected=[]
+        def trace(frame, action, arg):
+            child=frame.f_locals.get('child')
+            if (frame.f_code is hook.Runner.run.__code__ and action=='line'
+                    and getattr(child,'pid',None) and not injected):
+                children.append(child)
+                injected.append(True)
+                raise hook.HookBudgetExpired('after spawn')
+            return trace
+        previous=sys.gettrace()
+        try:
+            with TemporaryDirectory() as home:
+                sys.settrace(trace)
+                try:
+                    with self.assertRaises(hook.HookBudgetExpired):
+                        hook.Runner().run([sys.executable,'-c','import time;time.sleep(30)'],
+                                          timeout=1,env={'HOME':home})
+                finally:
+                    sys.settrace(previous)
+            self.assertEqual(injected,[True])
+            self.assertEqual(len(children),1)
+            self.assertIsNotNone(children[0].returncode,'child escaped ownership or was not reaped at spawn boundary')
+        finally:
+            sys.settrace(previous)
+            for child in children:
+                try: os.killpg(child.pid,signal.SIGKILL)
+                except ProcessLookupError: pass
+                child.communicate()
+
     def test_missing_vendor_is_still_empty_json_zero(self):
         import shutil
         with TemporaryDirectory() as tmp:
