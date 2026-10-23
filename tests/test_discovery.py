@@ -203,3 +203,35 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
             complete['Stop'] += hooks['Stop']
             self.write_hooks(paths, complete)
             self.assertEqual(discovery.native_codex_hook_state(paths, f.app), 'complete')
+
+    def test_status_names_in_foreign_arguments_are_not_writer_evidence(self):
+        for name in ('cc-status', 'iterm2-status', 'codex-iterm2-status'):
+            ordinary = '/third-party/record-event --tag '+name
+            quoted_separator = "/third-party/record-event --tag ';' "+name
+            for command in (ordinary, quoted_separator, 'sh -c '+shlex.quote(ordinary),
+                            'sh -c '+shlex.quote(quoted_separator)):
+                for complete in (False, True):
+                    with self.subTest(command=command, complete=complete), Fixture() as f:
+                        paths = resolve_paths()
+                        hooks = self.hooks(f.app) if complete else {}
+                        hooks.setdefault('Stop', []).append(
+                            {'hooks': [{'type': 'command', 'command': command}]})
+                        self.write_hooks(paths, hooks)
+                        before = f.snapshot()
+                        self.assertEqual(discovery.native_codex_hook_state(paths, f.app),
+                                         'complete' if complete else 'absent')
+                        self.assertEqual(f.snapshot(), before)
+
+    def test_actual_wrapped_status_commands_still_conflict(self):
+        for name in ('cc-status', 'iterm2-status', 'codex-iterm2-status'):
+            actual = '/third-party/'+name+' --agent codex'
+            for command in (actual, 'sh -c '+shlex.quote(actual),
+                            'sh -lc '+shlex.quote('/third-party/record-event; '+actual),
+                            'sh -c '+shlex.quote('if true; then '+actual+'; fi'),
+                            'env MODE=test '+actual, 'exec '+actual):
+                with self.subTest(command=command), Fixture() as f:
+                    paths = resolve_paths()
+                    hooks = self.hooks(f.app)
+                    hooks['Stop'].append({'hooks': [{'type': 'command', 'command': command}]})
+                    self.write_hooks(paths, hooks)
+                    self.assertEqual(discovery.native_codex_hook_state(paths, f.app), 'conflict')

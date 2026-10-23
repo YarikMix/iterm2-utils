@@ -173,6 +173,74 @@ def _legacy_codex_status(paths):
         return False
 
 
+def _shell_tokens(command):
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ''
+    return list(lexer)
+
+
+def _shell_commands(command):
+    """Split only unquoted shell operators; quoted operator arguments stay data."""
+    segments, segment = [], []
+    quote, escaped = None, False
+    for char in command:
+        if escaped:
+            segment.append(char)
+            escaped = False
+        elif char == chr(92) and quote != "'":
+            segment.append(char)
+            escaped = True
+        elif char in {"'", '"'}:
+            if quote is None:
+                quote = char
+            elif quote == char:
+                quote = None
+            segment.append(char)
+        elif quote is None and char in ';&|()\n':
+            segments.append(''.join(segment))
+            segment = []
+        else:
+            segment.append(char)
+    segments.append(''.join(segment))
+    return segments
+
+
+def _status_command_roles(command, depth=0):
+    """Classify executable positions and explicit wrappers, never ordinary args."""
+    if depth > 8:
+        return set()
+    roles = set()
+    for segment in _shell_commands(command):
+        words = _shell_tokens(segment)
+        # Conditional keywords and assignments precede the executable position.
+        while words and (words[0] in {'if', 'then', 'elif', 'else', 'while', 'until', 'do', '!'} or
+                         re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', words[0], re.S)):
+            words = words[1:]
+        if not words:
+            continue
+        executable = Path(words[0]).name
+        if executable == 'cc-status':
+            roles.add('native')
+        elif executable in {'iterm2-status', 'codex-iterm2-status'}:
+            roles.add('legacy')
+        elif executable in {'sh', 'bash', 'zsh', 'dash', 'ksh'}:
+            for index, option in enumerate(words[1:], 1):
+                if not re.fullmatch(r'-[A-Za-z]+', option):
+                    break
+                if 'c' in option and index + 1 < len(words):
+                    roles |= _status_command_roles(words[index + 1], depth + 1)
+                    break
+        elif executable in {'command', 'exec', 'env', 'nohup'}:
+            rest = words[1:]
+            # Common wrappers' flag/assignment tokens are not executable roles.
+            while rest and (rest[0].startswith('-') or
+                            re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', rest[0], re.S)):
+                rest = rest[1:]
+            roles |= _status_command_roles(shlex.join(rest), depth + 1)
+    return roles
+
+
 def native_codex_hook_state(paths: Paths, app: Path) -> str:
     """Inspect external direct hooks; never execute hooks or read executable bodies."""
     from runtime.events import CODEX_EVENTS
@@ -200,17 +268,17 @@ def native_codex_hook_state(paths: Paths, app: Path) -> str:
                 if not isinstance(hook, dict) or not isinstance(hook.get('command'), str):
                     continue
                 command = hook['command']
-                # These names establish evidence of a writer/wrapper. Do not guess
-                # what an unrelated executable does or inspect its contents.
-                legacy |= bool(re.search(r'(?<![\w-])(?:codex-)?iterm2-status(?![\w-])', command))
-                if 'cc-status' not in command:
+                try:
+                    tokens = _shell_tokens(command)
+                    roles = _status_command_roles(command)
+                except ValueError:
+                    conflict = True
+                    continue
+                legacy |= 'legacy' in roles
+                if 'native' not in roles:
                     continue
                 found = True
                 try:
-                    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-                    lexer.whitespace_split = True
-                    lexer.commenters = ''
-                    tokens = list(lexer)
                     executable = Path(tokens[0]) if tokens else Path('.')
                     matches = executable.is_absolute() and executable.resolve(strict=True) == expected
                     valid = (hook.get('type') == 'command' and matches and
