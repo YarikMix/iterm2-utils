@@ -206,11 +206,56 @@ def _shell_commands(command):
     return segments
 
 
+def _shell_substitutions(command):
+    """Find executing substitutions before shlex discards quoting/escaping."""
+    bodies = []
+
+    def scan(start, terminator=None, depth=0):
+        if depth > 16:
+            raise ValueError('Shell substitution nesting limit')
+        index, quote, parentheses = start, None, 0
+        while index < len(command):
+            char = command[index]
+            if char == chr(92) and quote != "'":
+                index += 2
+                continue
+            if quote == "'":
+                if char == "'":
+                    quote = None
+            elif char == "'" and quote is None:
+                quote = "'"
+            elif terminator == '`' and char == '`':
+                return index
+            elif command.startswith('$(', index) or char == '`':
+                offset = 2 if char == '$' else 1
+                end = scan(index + offset, ')' if char == '$' else '`', depth + 1)
+                bodies.append(command[index + offset:end])
+                index = end
+            elif char == '"':
+                quote = None if quote == '"' else '"'
+            elif quote is None and char == '(':
+                parentheses += 1
+            elif quote is None and char == ')':
+                if parentheses:
+                    parentheses -= 1
+                elif terminator == ')':
+                    return index
+            index += 1
+        if terminator:
+            raise ValueError('Unterminated shell substitution')
+        return index
+
+    scan(0)
+    return bodies
+
+
 def _status_command_roles(command, depth=0):
     """Classify executable positions and explicit wrappers, never ordinary args."""
     if depth > 8:
         return set()
     roles = set()
+    for body in _shell_substitutions(command):
+        roles |= _status_command_roles(body, depth + 1)
     for segment in _shell_commands(command):
         words = _shell_tokens(segment)
         # Conditional keywords and assignments precede the executable position.
@@ -233,10 +278,18 @@ def _status_command_roles(command, depth=0):
                     break
         elif executable in {'command', 'exec', 'env', 'nohup'}:
             rest = words[1:]
-            # Common wrappers' flag/assignment tokens are not executable roles.
-            while rest and (rest[0].startswith('-') or
-                            re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', rest[0], re.S)):
-                rest = rest[1:]
+            operands = ({'-u', '--unset', '-P', '-C', '--chdir'} if executable == 'env'
+                        else {'-a'} if executable == 'exec' else set())
+            while rest:
+                if rest[0] == '--':
+                    rest = rest[1:]
+                    break
+                if rest[0] in operands:
+                    rest = rest[2:]
+                elif rest[0].startswith('-') or re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*=.*', rest[0], re.S):
+                    rest = rest[1:]
+                else:
+                    break
             roles |= _status_command_roles(shlex.join(rest), depth + 1)
     return roles
 

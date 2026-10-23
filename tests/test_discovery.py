@@ -209,7 +209,9 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
             ordinary = '/third-party/record-event --tag '+name
             quoted_separator = "/third-party/record-event --tag ';' "+name
             for command in (ordinary, quoted_separator, 'sh -c '+shlex.quote(ordinary),
-                            'sh -c '+shlex.quote(quoted_separator)):
+                            'sh -c '+shlex.quote(quoted_separator),
+                            'env -u '+name+' /third-party/record-event',
+                            'exec -a '+name+' /third-party/record-event'):
                 for complete in (False, True):
                     with self.subTest(command=command, complete=complete), Fixture() as f:
                         paths = resolve_paths()
@@ -235,3 +237,43 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
                     hooks['Stop'].append({'hooks': [{'type': 'command', 'command': command}]})
                     self.write_hooks(paths, hooks)
                     self.assertEqual(discovery.native_codex_hook_state(paths, f.app), 'conflict')
+
+    def test_wrapper_option_operands_do_not_hide_executing_native_writer(self):
+        commands = (
+            'env -u UNUSED /third-party/cc-status --agent codex',
+            'exec -a custom-name /third-party/cc-status --agent codex',
+            'env --unset UNUSED /third-party/cc-status --agent codex',
+        )
+        for command in commands:
+            for complete in (False, True):
+                with self.subTest(command=command, complete=complete), Fixture() as f:
+                    paths = resolve_paths()
+                    hooks = self.hooks(f.app) if complete else {}
+                    hooks.setdefault('Stop', []).append({'hooks': [{'type': 'command', 'command': command}]})
+                    self.write_hooks(paths, hooks)
+                    self.assertEqual(discovery.native_codex_hook_state(paths, f.app), 'conflict')
+
+    def test_executing_shell_substitutions_conflict_but_literal_arguments_do_not(self):
+        actual = '/third-party/cc-status --agent codex'
+        backslash = chr(92)
+        bodies = (
+            ('/third-party/record-event "$('+actual+')"', True),
+            ('/third-party/record-event "`'+actual+'`"', True),
+            ("/third-party/record-event '$("+actual+")'", False),
+            ('/third-party/record-event "'+backslash+'$('+actual+')"', False),
+            ("/third-party/record-event '`"+actual+"`'", False),
+            ('/third-party/record-event "'+backslash+'`'+actual+backslash+'`"', False),
+            ('/third-party/record-event "$(/third-party/record-event --tag cc-status)"', False),
+        )
+        for body, executing in bodies:
+            command = 'sh -c '+shlex.quote(body)
+            for complete in (False, True):
+                with self.subTest(body=body, complete=complete), Fixture() as f:
+                    paths = resolve_paths()
+                    hooks = self.hooks(f.app) if complete else {}
+                    hooks.setdefault('Stop', []).append({'hooks': [{'type': 'command', 'command': command}]})
+                    self.write_hooks(paths, hooks)
+                    before = f.snapshot()
+                    expected = 'conflict' if executing else ('complete' if complete else 'absent')
+                    self.assertEqual(discovery.native_codex_hook_state(paths, f.app), expected)
+                    self.assertEqual(f.snapshot(), before)
