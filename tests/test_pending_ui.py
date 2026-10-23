@@ -15,6 +15,9 @@ class PendingUiTests(LifecycleFixture):
         p.write_text(json.dumps({'hooks':{'Stop':[old,new,foreign]},'workgroup':'after'}))
         result=lifecycle.reconcile_ui(self.context,'claude-native-status',self.runner)
         self.assertSuccess(result);self.assertFalse(result.receipt.pending_ui)
+        owned=[r['locator']['entry'] for r in result.receipt.resources if r['kind']=='hook']
+        self.assertEqual(owned,[new])
+        self.assertNotIn(old,owned);self.assertNotIn(foreign,owned)
         lifecycle.uninstall(self.context,frozenset({'status'}),self.runner)
         data=json.loads(p.read_text());self.assertEqual(data['workgroup'],'after');self.assertEqual(data['hooks']['Stop'],[old,foreign])
 

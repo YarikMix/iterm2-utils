@@ -28,6 +28,23 @@ class LifecycleFixture(unittest.TestCase):
         for name, side in [('preferences.read',pref_read),('preferences.write',pref_write),('registration_adapter.inspect',reg_inspect),('registration_adapter.apply',reg_apply)]:
             mock = patch('iterm2_utils.engine.'+name,side_effect=side);mock.start();self.addCleanup(mock.stop)
 
+    def external_native(self):
+        """Materialize real discovery inputs, including the selected fake bundle."""
+        import shlex
+        from runtime.events import CODEX_EVENTS
+        binary=self.context.executables['iterm2']/'Contents/Resources/utilities/cc-status'
+        binary.parent.mkdir(parents=True,exist_ok=True)
+        binary.write_text('#!/bin/sh\nexit 0\n');binary.chmod(0o700)
+        path=self.context.paths.codex_home/'hooks.json'
+        path.parent.mkdir(exist_ok=True)
+        document=json.loads(path.read_bytes()) if path.exists() else {'hooks':{}}
+        native={event:[{'hooks':[{'type':'command','command':shlex.join([str(binary),'--agent','codex']),'timeout':3}]}]
+                for event in CODEX_EVENTS if event not in {'PreCompact','PostCompact'}}
+        for event,entries in native.items():
+            document['hooks'].setdefault(event,[]).extend(entries)
+        path.write_text(json.dumps(document))
+        return native
+
     def selection(self, *features, agents=('codex',), shortcuts=()):
         return Selection(frozenset(agents),frozenset(features),frozenset(shortcuts),'Default')
 
@@ -226,12 +243,14 @@ class LifecycleTests(LifecycleFixture):
         self.assertSuccess(self.install('status'))
         settings=self.context.paths.config/'runtime.json'
         self.assertTrue(json.loads(settings.read_bytes())['status'])
-        self.context.installed['codex-native-status']={'enabled':True}
+        self.external_native()
         before=self.snapshot()
         result=lifecycle.update(self.context,self.runner)
         self.assertTrue(any(f.code=='native_hook_conflict' and f.state=='conflict' for f in result.findings))
         self.assertEqual(self.snapshot(),before)
         self.assertIn('status',result.receipt.selection.features)
+        status_resource=next(r for r in result.receipt.resources if r['target']==str(settings.resolve()) and r['locator'].get('pointer')==['status'])
+        self.assertEqual(status_resource['installed'],{'exists':True,'value':True})
 
     def test_native_dependency_does_not_block_notifications_or_restore(self):
         self.context.capabilities -= {'iterm2:cc-status-codex'}
@@ -273,13 +292,8 @@ class LifecycleTests(LifecycleFixture):
                 self.assertEqual(runtime_owners,expected)
 
     def test_native_reuse_keeps_external_hooks_outside_receipt(self):
-        import shlex
-        from runtime.events import CODEX_EVENTS
-        path=self.context.paths.codex_home/'hooks.json';path.parent.mkdir()
-        command=shlex.join([str(self.context.executables['iterm2']/'Contents/Resources/utilities/cc-status'),'--agent','codex'])
-        native={event:[{'hooks':[{'type':'command','command':command,'timeout':3}]}] for event in CODEX_EVENTS if event not in {'PreCompact','PostCompact'}}
-        path.write_text(json.dumps({'hooks':native}))
-        self.context.installed['codex-native-status']={'enabled':True}
+        path=self.context.paths.codex_home/'hooks.json'
+        native=self.external_native()
         self.assertSuccess(self.install('status','restore'))
         result=lifecycle.update(self.context,self.runner);self.assertSuccess(result)
         self.assertFalse(json.loads((self.context.paths.config/'runtime.json').read_bytes())['status'])
@@ -297,7 +311,7 @@ class LifecycleTests(LifecycleFixture):
             with self.subTest(feature=feature,agent=agent):
                 fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
                 fixture.assertSuccess(fixture.install('status'))
-                fixture.context.installed['codex-native-status']={'enabled':True}
+                fixture.external_native()
                 before=fixture.snapshot()
                 result=fixture.install(feature,agents=(agent,))
                 self.assertTrue(any(f.state=='conflict' for f in result.findings))
@@ -311,7 +325,7 @@ class LifecycleTests(LifecycleFixture):
                 fixture.assertSuccess(fixture.install('status'))
                 if retained_notifications:
                     fixture.assertSuccess(fixture.install('notifications',agents=('claude',)))
-                fixture.context.installed['codex-native-status']={'enabled':True}
+                fixture.external_native()
                 paths=[fixture.context.paths.config/'runtime.json',fixture.context.paths.codex_home/'hooks.json',fixture.context.paths.claude_settings]
                 before={path:path.read_bytes() if path.exists() else None for path in paths}
                 result=fixture.install('status',agents=('claude',))

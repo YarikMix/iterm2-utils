@@ -197,3 +197,55 @@ class MigrationTests(LifecycleFixture):
         for event in ('SessionStart','UserPromptSubmit','Stop'):
             self.assertEqual(current['hooks'][event],hooks_before['hooks'][event])
         self.assertEqual(self.context.paths.zshrc.read_bytes(),shell_before)
+
+    def test_legacy_restore_and_status_adopt_atomically(self):
+        import json
+        from unittest.mock import patch
+        from iterm2_utils import engine, state
+        from iterm2_utils.config import tomlfile
+        path,exact,foreign=self.restore_hooks_fixture()
+        p=self.context.paths
+        config=p.codex_home/'config.toml'
+        config.write_text('[plugins."codex-iterm2-status@local"]\nenabled = true\n')
+        p.zshrc.write_text(p.zshrc.read_text()+'# >>> codex-iterm2-status >>>\n'+migration.STATUS_BODY+'\n# <<< codex-iterm2-status <<<\n')
+        shell_before=p.zshrc.read_bytes()
+        selection=self.selection('status','restore');selection.adopt_legacy=True
+        original=engine._write_file
+        def fail_settings(target,*args,**kwargs):
+            if target==(p.config/'runtime.json').resolve():
+                raise OSError('injected combined adoption failure')
+            return original(target,*args,**kwargs)
+        with patch.object(engine,'_write_file',side_effect=fail_settings):
+            result=lifecycle.install(self.context,selection,self.runner)
+        self.assertTrue(any(f.state=='conflict' for f in result.findings))
+        self.assertEqual(result.receipt.selection.features,set())
+        self.assertIsNone(state.load(p.data/'receipt.json'))
+        self.assertEqual(p.zshrc.read_bytes(),shell_before)
+        self.assertTrue(tomlfile.parse(config.read_bytes())['plugins']['codex-iterm2-status@local']['enabled'])
+        for event in ('SessionStart','UserPromptSubmit','Stop'):
+            self.assertEqual(json.loads(path.read_bytes())['hooks'][event],[foreign,exact])
+        self.assertFalse((p.data/'current').exists())
+        self.assertSuccess(lifecycle.install(self.context,selection,self.runner))
+        self.assertSuccess(lifecycle.update(self.context,self.runner))
+        settings=json.loads((p.config/'runtime.json').read_bytes())
+        self.assertEqual(settings['status_backend'],'cc-status');self.assertTrue(settings['restore'])
+        self.assertFalse(tomlfile.parse(config.read_bytes())['plugins']['codex-iterm2-status@local']['enabled'])
+        self.assertSuccess(lifecycle.uninstall(self.context,{'status','restore'},self.runner))
+        self.assertEqual(p.zshrc.read_bytes(),shell_before)
+        self.assertTrue(tomlfile.parse(config.read_bytes())['plugins']['codex-iterm2-status@local']['enabled'])
+        for event in ('SessionStart','UserPromptSubmit','Stop'):
+            self.assertEqual(json.loads(path.read_bytes())['hooks'][event],[foreign,exact])
+
+    def test_partial_status_uninstall_restores_legacy_and_keeps_restore(self):
+        import json
+        from iterm2_utils.config import tomlfile
+        self.context.paths.codex_home.mkdir()
+        config=self.context.paths.codex_home/'config.toml'
+        config.write_text('[plugins."iterm2-status@local"]\nenabled = true\n')
+        selection=self.selection('status','restore');selection.adopt_legacy=True
+        self.assertSuccess(lifecycle.install(self.context,selection,self.runner))
+        self.assertSuccess(lifecycle.uninstall(self.context,{'status'},self.runner))
+        settings=json.loads((self.context.paths.config/'runtime.json').read_bytes())
+        self.assertFalse(settings['status']);self.assertTrue(settings['restore'])
+        self.assertTrue(tomlfile.parse(config.read_bytes())['plugins']['iterm2-status@local']['enabled'])
+        self.assertTrue((self.context.paths.data/'current/hook.py').exists())
