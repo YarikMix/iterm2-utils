@@ -405,28 +405,65 @@ def status_installations(paths: Paths, app: Path | None = None) -> dict:
 def live_status(context: Context, runner: Runner, selection=None) -> list:
     """Bounded read-only explicit-session API probe; payload never serialized."""
     from .models import Finding
-    from runtime.events import terminal_id
+    from runtime.events import terminal_from_environment
     findings=[]
     if selection is None or not selection.agents_for('status'):
         return findings
     if 'iterm2:session-status' not in context.capabilities:
         findings.append(Finding('status',next(iter(selection.agents_for('status'))) if len(selection.agents_for('status')) == 1 else None,'status_capability','unavailable','iTerm2 session status capability is unavailable.'))
         return findings
-    terminal=terminal_id(os.environ.get('ITERM_SESSION_ID',''))
+    terminal=terminal_from_environment(os.environ)
+    if os.environ.get('TMUX') or not terminal:
+        message = ('Live status is unverified in TMUX; use an ordinary local iTerm2 panel.'
+                   if os.environ.get('TMUX') else
+                   'Live status requires an explicit valid UUID in TERM_SESSION_ID or ITERM_SESSION_ID; both sources must agree when present.')
+        findings.append(Finding('status',None,'status_api','pending_ui',message))
+        return findings
     ready=False
     if terminal and context.executables.get('it2'):
         try:
             result=runner.run([str(context.executables['it2']),'session','get-status','--session',terminal],timeout=2)
             value=json.loads(result.stdout)
-            ready=result.returncode==0 and isinstance(value,dict) and value.get('status') in {'','idle','working','waiting'}
+            ready=(result.returncode==0 and isinstance(value,dict) and
+                   isinstance(value.get('status'),str) and value['status'] in {'','idle','working','waiting','done','error'})
         except (OSError,ValueError,subprocess.SubprocessError):
             pass
     findings.append(Finding('status',None,'status_api','ready' if ready else 'pending_ui',
-                            'Explicit-session API is reachable.' if ready else 'Enable Python API and authorize it2, then run doctor --live from an iTerm2 session.'))
+                            'Explicit-session API is reachable; hook delivery and error-event support remain unverified.' if ready else 'Enable Python API and authorize it2, then run doctor --live from an iTerm2 session.'))
     if 'claude' not in selection.agents_for('status'):
         return findings
     if context.installed.get('claude-status',{}).get('enabled'):
         findings.append(Finding('status','claude','native_status','ready','Native cc-status hook detected.'))
     else:
         findings.append(Finding('status','claude','native_status','pending_ui','Use iTerm2 > Install/Reinstall Claude Code Integration; select only API, hooks and Session Status.'))
+    return findings
+
+
+def native_status_findings(context: Context, selection) -> list:
+    """Describe selected Codex status capabilities without executing a hook."""
+    from .models import Finding
+    if 'codex' not in selection.agents_for('status'):
+        return []
+    native = context.installed.get('codex-native-status', {})
+    legacy = context.installed.get('codex-status', {}).get('enabled')
+    reused = legacy and not native and not selection.adopt_legacy
+    if native.get('conflict') or native.get('enabled') and legacy:
+        backend, backend_state = 'Conflicting status writers; resolve native/legacy registrations.', 'conflict'
+    elif reused:
+        backend, backend_state = 'Codex backend: legacy reused; this is not cc-status. Use --adopt-legacy for explicit migration.', 'ready'
+    elif native.get('enabled'):
+        backend, backend_state = 'Codex backend: external native cc-status reused without ownership; adapter-only input/compact behavior is unavailable.', 'ready'
+    else:
+        backend, backend_state = 'Codex backend: cc-status via package adapter; installed files do not establish loaded hooks or event delivery.', 'ready'
+    findings = [Finding('status','codex','status_backend',backend_state,backend)]
+    if not reused:
+        capable = 'iterm2:cc-status-codex' in context.capabilities
+        findings.append(Finding('status','codex','native_status_capability','ready' if capable else 'unavailable',
+            'Compatible iTerm2 3.7.6+ bundle and executable cc-status/it2 pair with required flags detected; live delivery is unverified.' if capable else
+            'Codex native status requires iTerm2 3.7.6+ and an executable cc-status/it2 pair from the selected compatible bundle.'))
+    version = context.versions.get('codex','unknown')
+    message = ('Codex 0.163.0: StopFailure is absent from the verified hook schema; API failures cannot reliably produce native error.'
+               if version == '0.163.0' else
+               f'Codex {version}: StopFailure error-event source is unverified; automatic native error is not supported by this adapter.')
+    findings.append(Finding('status','codex','codex_error_event','limited',message))
     return findings

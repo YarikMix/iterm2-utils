@@ -12,6 +12,39 @@ from iterm2_utils import discovery
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_live_status_accepts_native_terminal_states_without_payload(self):
+        from iterm2_utils.models import Selection
+        from tests.test_runtime_events import UUID
+        with Fixture() as f:
+            context=discover(resolve_paths(),f.runner)
+            selection=Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default')
+            with patch.dict(os.environ,{'TERM_SESSION_ID':'w0t0p0:'+UUID}):
+                for state in ('','idle','working','waiting','done','error','invalid',None,[],{}):
+                    with self.subTest(state=state):
+                        f.runner.responses['it2']=json.dumps({'status':state,'detail':'PRIVATE'})
+                        f.runner.calls.clear()
+                        findings=discovery.live_status(context,f.runner,selection)
+                        api=next(item for item in findings if item.code=='status_api')
+                        self.assertEqual(api.state,'ready' if isinstance(state,str) and state!='invalid' else 'pending_ui')
+                        self.assertEqual(f.runner.calls, [([str(context.executables['it2']),'session','get-status','--session',UUID],2,None)])
+                        self.assertNotIn('PRIVATE',repr(findings))
+
+    def test_live_status_rejects_ambiguous_invalid_and_tmux_targets(self):
+        from iterm2_utils.models import Selection
+        from tests.test_runtime_events import UUID
+        for environment in ({}, {'TERM_SESSION_ID':'bad'},
+                {'TERM_SESSION_ID':UUID,'ITERM_SESSION_ID':'00000000-0000-0000-0000-000000000000'},
+                {'TERM_SESSION_ID':UUID,'ITERM_SESSION_ID':''}, {'TERM_SESSION_ID':UUID,'TMUX':'test'}):
+            with self.subTest(environment=environment), Fixture() as f:
+                context=discover(resolve_paths(),f.runner)
+                f.runner.responses['it2']='{"status":"idle"}'
+                f.runner.calls.clear()
+                selection=Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default')
+                with patch.dict(os.environ,environment):
+                    findings=discovery.live_status(context,f.runner,selection)
+                self.assertEqual(f.runner.calls,[])
+                self.assertEqual(next(item for item in findings if item.code=='status_api').state,'pending_ui')
+
     def test_claude_only_never_probes_codex(self):
         with Fixture() as f:
             context = discover(resolve_paths(), f.runner, agents=frozenset({'claude'}))

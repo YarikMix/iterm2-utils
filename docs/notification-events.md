@@ -5,13 +5,24 @@ terminal-notifier and iTerm2 Automation access for the exact session lookup.
 No live banners or macOS permission prompts have been verified by automated tests.
 
 Codex custom notices cover request_user_input/request_user_input_async PreToolUse
-and completion after a main Stop followed by idle. A Stop while subagents run
-retains pending completion until upstream state reaches idle. PermissionRequest
+and completion after a main Stop followed by the retained notification model's
+idle transition. A Stop while subagents run retains pending completion until
+that model reaches idle. This is separate from visible native cc-status, which
+can show done, working or waiting under iTerm2 policy. PermissionRequest
 never sends a custom banner: this hook precedes auto-review, so native TUI policy
 alone decides whether approval is actually presented. The targeted
 `tui.notifications = ["approval-requested"]` policy is verified for Codex 0.163.0;
 unknown versions report unavailable and the current transaction engine blocks
 installation. Previous bool/list values are retained by address-owned receipts.
+
+Visible Codex status now forwards to the app's native cc-status; the vendored
+Python transition remains only for these notification decisions and does not
+write status. Neither feature selects the other. Codex 0.163.0 registers exactly
+the 12 verified lifecycle events and lacks StopFailure, Notification and
+PostToolUseFailure. A synthetic native StopFailure tests an error renderer, not
+actual Codex API-failure delivery; automatic error display is unsupported for
+that version and the source is unverified for unknown versions. Claude's
+separately confirmed schema and notification adapter remain distinct.
 
 Claude SessionStart resets state; UserPromptSubmit starts a new prompt, using
 prompt_id or a counter advanced only by UserPromptSubmit. Notification with

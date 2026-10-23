@@ -304,7 +304,9 @@ def reconcile_ui(context, code, runner):
 def doctor(context, receipt, runner):
     """Read-only verification; never recover journals or reconcile UI implicitly."""
     prepared = plan(_context(context), receipt.selection)
-    findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.code == 'native_status' and f.state == 'pending_ui']
+    findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.state == 'limited'
+                or f.code in {'status_backend','native_status_capability'}
+                or f.code == 'native_status' and f.state == 'pending_ui']
     # Reused configuration carries no ownership receipt. Check the selected
     # declarative addresses too, without applying the generated edits.
     for edit in prepared.changes.edits:

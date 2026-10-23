@@ -60,7 +60,7 @@ python3 -m iterm2_utils doctor --json
 | Функция | Что включается | Зависимости сверх iTerm2/zsh и выбранного агента |
 | --- | --- | --- |
 | `clipboard` | Cmd+C/Ctrl+C EN/RU, без автокопирования при выделении; только Codex | — |
-| `status` | Статус конкретной вкладки, Claude через штатный cc-status | Python, поддерживаемый iTerm2 |
+| `status` | Native working/waiting/done конкретной вкладки; error зависит от источника событий | Python 3.11+, для Codex iTerm2 3.7.6+ с cc-status/it2 |
 | `notifications` | Завершение/запрос внимания, переход к своей вкладке | Python 3.11+, terminal-notifier, it2, osascript |
 | `restore` | Выбор диалога Codex для продолжения; только Codex | Python, fzf, Codex --no-daemon |
 | `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
@@ -71,6 +71,27 @@ python3 -m iterm2_utils doctor --json
 пакетный менеджер. CLI не ставит отсутствующие агенты/Peekaboo автоматически.
 Отсутствие Python 3.11+ — prerequisite установщика, а не повод ставить второго
 агента. Подробности: [features](skills/iterm2-setup/references/features.md).
+
+Новая установка выбранного `status` для Codex использует штатный `cc-status --agent
+codex` из проверенного bundle iTerm2 3.7.6+; утилиты приложения не копируются в
+runtime. Она даёт native `working`, `waiting`, `done` и штатный переход к `idle`.
+В проверенной схеме Codex **0.163.0** ровно 12 событий: `StopFailure`, `Notification`
+и `PostToolUseFailure` отсутствуют. Поэтому автоматический `error` при ошибке API
+Codex не поддержан; поддержка renderer в iTerm2 этого не доказывает. Для неизвестной
+версии doctor сообщает непроверенный источник ошибки (`codex_error_event: limited`).
+Это неблокирующее ограничение, независимое от готовности API и файлов.
+
+Штатного готового установщика Codex в меню iTerm2 нет: используйте выбранные
+plan/install пакета. Claude по-прежнему настраивается через Install/Reinstall
+Claude Code Integration, только API, hooks и Session Status, без Workgroup и
+Auto-Enter. Новые hooks могут потребовать новой сессии и подтверждения доверия
+человеком. `status` не включает notifications, restore, MCP и другие функции.
+
+Полный внешний набор native Codex hooks переиспользуется без ownership и второго
+writer; дополнительные преобразования input/compact нашего adapter для него не
+обещаются. Активный внешний legacy plugin по умолчанию остаётся **legacy reused**,
+это ещё не cc-status. Его явная миграция — существующий `--adopt-legacy` при
+plan/install; принадлежащий пакету beta.1 status мигрирует через update.
 
 `clipboard` задаёт `tui.copy_on_select = "never"` и общую настройку iTerm2
 `CopySelection = false`. Только этот выбор отключает автокопирование. Профиль
@@ -196,3 +217,10 @@ Doctor читает ресурсы receipt, зависимости, активн
 MCP-only не зависит от Session Status. Без receipt doctor сообщает обнаруженные
 возможности; он не предлагает включить невыбранные функции. Чистая offline
 диагностика не подтверждает живую доставку уведомлений или API-связь.
+`doctor` отдельно сообщает `status_backend`, `native_status_capability` и
+`codex_error_event`. `doctor --live` читает только get-status явного UUID и
+принимает `""`, `idle`, `working`, `waiting`, `done`, `error`, не печатает детали
+и не запускает cc-status. Согласованные TERM_SESSION_ID/ITERM_SESSION_ID обязательны,
+если обе переменные заданы; TMUX в этой миграции не поддерживается. Доступный API
+не доказывает доставку hooks или наличие источника `error`. Живая приёмка этой
+миграции и новый CI-прогон не заявляются: изолированный Mac-контур недоступен.

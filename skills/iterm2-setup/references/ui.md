@@ -30,3 +30,10 @@ or try a second UI method after a policy denial.
 A new session may be required to load hooks or an MCP registration. Tell the
 colleague; never restart it automatically. System permission dialogs always
 remain human actions, including when Peekaboo can navigate normal app settings.
+
+Codex native status has no ready official installer menu: use the existing
+selected package plan/install (or update for owned beta.1 hooks). Do not apply
+Claude's menu checkpoint to Codex. New hooks still require human trust and may
+need a fresh session. Leave independent notifications/restore unselected unless
+requested. A successful save or API read does not verify event delivery; Codex
+0.163.0 cannot supply StopFailure for automatic API-error status.

@@ -73,6 +73,38 @@ class StatusFeatureTests(unittest.TestCase):
             self.assertNotIn('StopFailure',hooks)
             self.assertTrue(all(len(v)==1 and v[0]['hooks'][0]['timeout']==3 for v in hooks.values()))
 
+    def test_doctor_preserves_backend_capability_and_error_limitations(self):
+        from tests.test_lifecycle import LifecycleFixture
+        from iterm2_utils import lifecycle
+        fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+        installed=fixture.install('status')
+        fixture.assertSuccess(installed)
+        for version in ('0.163.0','0.164.0','unknown'):
+            with self.subTest(version=version):
+                fixture.context.versions['codex']=version
+                before=fixture.snapshot()
+                findings=lifecycle.doctor(fixture.context,installed.receipt,fixture.runner)
+                by_code={f.code:f for f in findings}
+                self.assertEqual(by_code['status_backend'].state,'ready')
+                self.assertIn('cc-status',by_code['status_backend'].message)
+                self.assertEqual(by_code['native_status_capability'].state,'ready')
+                limitation=by_code['codex_error_event']
+                self.assertEqual(limitation.state,'limited')
+                self.assertIn('StopFailure',limitation.message)
+                self.assertIn(version,limitation.message)
+                self.assertIn('absent' if version=='0.163.0' else 'unverified',limitation.message)
+                self.assertEqual(fixture.snapshot(),before)
+
+    def test_plan_distinguishes_owned_native_external_native_and_legacy(self):
+        for inventory,label in (({},'cc-status'),({'codex-native-status':{'enabled':True}},'external native'),
+                                ({'codex-status':{'enabled':True}},'legacy reused')):
+            with self.subTest(label=label), Fixture() as f:
+                context=replace(discover(resolve_paths(),f.runner),installed=inventory)
+                result=plan(context,Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default'))
+                backend=next(f for f in result.changes.findings if f.code=='status_backend')
+                self.assertIn(label,backend.message)
+                self.assertNotIn('PRIVATE',repr(result.changes.findings))
+
     def test_native_reuse_preserves_external_hooks_and_no_daemon_wrapper(self):
         for extra in (set(), {'notifications'}, {'restore'}):
             with self.subTest(extra=extra), Fixture() as f:

@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import subprocess
 import unittest
 from unittest.mock import patch
 from tests.support import Fixture
@@ -8,6 +9,82 @@ from iterm2_utils.cli import main
 
 
 class CliTests(unittest.TestCase):
+    def test_doctor_missing_native_pair_blocks_without_executing_handler(self):
+        for name in ('it2','cc-status'):
+            with self.subTest(name=name), Fixture() as f:
+                code,out,err=self.invoke(f,['install','--agent','codex','--features','status','--json'])
+                self.assertEqual(code,0,out+err)
+                (f.app/'Contents/Resources/utilities'/name).unlink()
+                before=f.snapshot()
+                f.runner.calls.clear()
+                code,out,err=self.invoke(f,['doctor','--json'])
+                self.assertEqual(code,2,out+err)
+                self.assertTrue(any(item['code']=='native_status_capability' and item['state']=='unavailable'
+                                    for item in json.loads(out)['findings']))
+                self.assertFalse(any(call[0][0].endswith('/cc-status') for call in f.runner.calls))
+                self.assertEqual(f.snapshot(),before)
+
+    def test_doctor_preserves_pending_trust_and_unknown_error_source(self):
+        from iterm2_utils import state
+        from iterm2_utils.discovery import resolve_paths
+        from iterm2_utils.models import UiStep
+        with Fixture() as f:
+            f.runner.responses['codex']='codex-cli 0.164.0 --no-daemon'
+            code,out,err=self.invoke(f,['install','--agent','codex','--features','status','--json'])
+            self.assertEqual(code,0,out+err)
+            receipt_path=resolve_paths().data/'receipt.json'
+            receipt=state.load(receipt_path)
+            receipt.pending_ui.append(UiStep('hook-trust','status','codex','Confirm hook trust and start a new session.'))
+            state.save(receipt_path,receipt)
+            before=f.snapshot()
+            code,out,err=self.invoke(f,['doctor','--json'])
+            self.assertEqual(code,3,out+err)
+            findings={item['code']:item for item in json.loads(out)['findings']}
+            self.assertEqual(findings['hook-trust']['state'],'pending_ui')
+            self.assertEqual(findings['codex_error_event']['state'],'limited')
+            self.assertIn('unverified',findings['codex_error_event']['message'])
+            hooks=json.loads((resolve_paths().codex_home/'hooks.json').read_text())['hooks']
+            self.assertEqual(len(hooks),12)
+            self.assertFalse({'StopFailure','Notification','PostToolUseFailure'} & hooks.keys())
+            self.assertEqual(f.snapshot(),before)
+
+    def test_doctor_native_error_limit_is_nonblocking_and_read_only(self):
+        from iterm2_utils.discovery import resolve_paths
+        from tests.test_runtime_events import UUID
+        with Fixture() as f:
+            f.runner.responses['codex']='codex-cli 0.163.0 --no-daemon'
+            code,out,err=self.invoke(f,['install','--agent','codex','--features','status','--json'])
+            self.assertEqual(code,0,err)
+            before=f.snapshot()
+            for live in (False,True):
+                # Discovery's help response stays separate from the live read.
+                original=f.runner.run
+                def run(argv,**kwargs):
+                    if argv[1:3]==['session','get-status']:
+                        f.runner.calls.append((argv,kwargs['timeout'],kwargs.get('stdin')))
+                        return subprocess.CompletedProcess(argv,0,'{"status":"done","detail":"PRIVATE"}','')
+                    return original(argv,**kwargs)
+                f.runner.responses['it2']='session-status set-status --background-tasks --background-tasks-delta --turn-open --if-turn-open --if-background-tasks --json'
+                with patch.dict('os.environ',{'TERM_SESSION_ID':UUID}), patch.object(f.runner,'run',side_effect=run):
+                    code,out,err=self.invoke(f,['doctor','--json',*(['--live'] if live else [])])
+                self.assertEqual(code,0,out+err)
+                findings={item['code']:item for item in json.loads(out)['findings']}
+                self.assertEqual(findings['codex_error_event']['state'],'limited')
+                self.assertIn('0.163.0',findings['codex_error_event']['message'])
+                self.assertEqual(findings['status_backend']['state'],'ready')
+                if live:self.assertEqual(findings['status_api']['state'],'ready')
+                api_calls=[call for call in f.runner.calls if call[0][1:3]==['session','get-status']]
+                self.assertEqual(len(api_calls),int(live))
+                self.assertFalse(any(call[0][0].endswith('/cc-status') or
+                    call[0][1:2]==['set-status'] and call[0][2:]!=['--help'] for call in f.runner.calls))
+                self.assertNotIn('PRIVATE',out+err)
+                self.assertEqual(f.snapshot(),before)
+            settings=resolve_paths().config/'runtime.json'
+            settings.write_text('{PRIVATE')
+            code,out,err=self.invoke(f,['doctor','--json'])
+            self.assertEqual(code,2)
+            self.assertNotIn('PRIVATE',out+err)
+
     def invoke(self, f, args):
         out, err = io.StringIO(), io.StringIO()
         with patch('iterm2_utils.cli.Runner', return_value=f.runner), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

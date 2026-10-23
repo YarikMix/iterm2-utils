@@ -39,6 +39,25 @@ class WorkflowFixture(LifecycleFixture):
 
 
 class AgentWorkflowTests(WorkflowFixture):
+    def test_selected_native_status_keeps_error_limit_and_independent_features(self):
+        self.context.versions['codex']='0.163.0'
+        installed=self.setup_cli(['install','--agent','codex','--features','status'])
+        self.assertEqual(installed['exit_code'],0)
+        self.assertEqual(installed['report']['selection']['features'],['status'])
+        settings=json.loads((self.context.paths.config/'runtime.json').read_text())
+        self.assertTrue(settings['status'])
+        self.assertEqual(settings['status_backend'],'cc-status')
+        self.assertFalse(settings['notifications'])
+        self.assertFalse(settings['restore'])
+        before=self.snapshot()
+        doctor=self.setup_cli(['doctor'])
+        self.assertEqual(doctor['exit_code'],0)
+        limitation=next(f for f in doctor['report']['findings'] if f['code']=='codex_error_event')
+        self.assertEqual(limitation['state'],'limited')
+        self.assertIn('StopFailure',limitation['message'])
+        self.assertFalse(doctor['report'].get('ui'))
+        self.assertEqual(self.snapshot(),before)
+
     def test_partial_choice_limits_install(self):
         result = self.setup_cli(['install', '--agent', 'codex', '--features', 'clipboard'])
         self.assertEqual(result['report']['selection']['features'], ['clipboard'])

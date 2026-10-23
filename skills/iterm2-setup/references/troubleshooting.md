@@ -51,3 +51,28 @@ alone, or explicitly plan/install `--coexist-notifications`. Explain duplicate
 banners and preserve the external hooks. Selective uninstall accepts `--agent`.
 Live status checks run only for selected status consumers; MCP checks are
 independent. With no receipt, discovery does not require enabling every feature.
+
+For native Codex status, inspect `status_backend` (cc-status, external native or
+legacy reused) and `native_status_capability` separately. Missing/non-executable
+cc-status or sibling it2, an old bundle or missing required flags needs a
+compatible iTerm2 3.7.6+ bundle. Never execute cc-status as a live diagnostic
+probe or copy app utilities into the package. A partial/duplicate/wrapped native
+set or competing legacy writer needs explicit conflict resolution.
+
+`status_migration_required`: run `python3 -m iterm2_utils update --dry-run --json`,
+resolve the owned Codex status conflicts and complete update first. Another
+consumer cannot switch the shared runtime while the owned status migration is
+blocked. Preserve independently selected notifications/restore and foreign edits.
+
+`codex_error_event: limited` is nonblocking. For 0.163.0 the verified schema lacks
+StopFailure; for another/unknown version the error source is unverified. Do not
+add guessed events or infer session failure from a failed tool or message text.
+Ready files, child exit0 or `status_api: ready` do not establish hook delivery or
+automatic API-error display.
+
+`doctor --live` reads only get-status for a strict explicit UUID. TERM_SESSION_ID
+alone is accepted; if ITERM_SESSION_ID is also present both must be valid and
+agree. A malformed/conflicting source or nonempty TMUX leaves the probe pending,
+without guessing the active tab. Use an ordinary local iTerm2 panel; tmux,
+control mode and SSH need separate acceptance. Details/payload are not printed.
+The accepted API states are empty, idle, working, waiting, done and error.
