@@ -4,12 +4,35 @@ import os
 import platform
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
 
 from .commands import Runner
 from .models import Context, Paths
+
+NATIVE_STATUS_FLAGS = frozenset({
+    '--background-tasks', '--background-tasks-delta', '--turn-open',
+    '--if-turn-open', '--if-background-tasks', '--json',
+})
+
+
+def _native_utility(app, name):
+    path = app / 'Contents/Resources/utilities' / name
+    try:
+        expected = app.resolve() / 'Contents/Resources/utilities' / name
+        return path.is_file() and os.access(path, os.X_OK) and path.resolve() == expected
+    except (OSError, RuntimeError):
+        return False
+
+
+def _native_version(info):
+    version = info.get('CFBundleShortVersionString')
+    if not isinstance(version, str) or not re.fullmatch(r'[0-9]+\.[0-9]+(?:\.[0-9]+)?', version):
+        return False
+    parts = tuple(int(part) for part in version.split('.'))
+    return (parts + (0,) * (3 - len(parts))) >= (3, 7, 6)
 
 
 def resolve_paths() -> Paths:
@@ -106,6 +129,11 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
                 capabilities.add('iterm2:session-status')
             if output:
                 executables['it2'] = it2
+        if _native_version(info) and all(_native_utility(app, name) for name in ('it2', 'cc-status')):
+            output = _probe(runner, app / 'Contents/Resources/utilities/it2', ['set-status', '--help'])
+            flags = set(re.findall(r'(?<![\w-])--[a-z][a-z-]*(?![\w-])', output))
+            if NATIVE_STATUS_FLAGS <= flags:
+                capabilities.add('iterm2:cc-status-codex')
     preferences = {}
     profiles = {}
     if app:
@@ -133,21 +161,84 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
     return Context(paths, executables, versions, frozenset(capabilities), profiles, status_installations(paths, app), preferences)
 
 
-def status_installations(paths: Paths, app: Path | None = None) -> dict:
-    """Return booleans only; never expose foreign hooks/env/settings bodies."""
-    import shlex
-    installed={}
+def _legacy_codex_status(paths):
     try:
         import tomllib
-        config=tomllib.loads((paths.codex_home/'config.toml').read_text())
-        plugins=config.get('plugins',{})
-        # Official plugin key is package@marketplace; exact known package name.
-        enabled=any(key.split('@',1)[0] in {'iterm2-status','codex-iterm2-status'} and
-                    isinstance(value,dict) and value.get('enabled') is True
-                    for key,value in plugins.items())
-        if enabled:installed['codex-status']={'enabled':True}
-    except (OSError,ValueError,TypeError,AttributeError):
-        pass
+        config = tomllib.loads((paths.codex_home / 'config.toml').read_text())
+        plugins = config.get('plugins', {})
+        return any(key.split('@', 1)[0] in {'iterm2-status', 'codex-iterm2-status'} and
+                   isinstance(value, dict) and value.get('enabled') is True
+                   for key, value in plugins.items())
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
+
+
+def native_codex_hook_state(paths: Paths, app: Path) -> str:
+    """Inspect external direct hooks; never execute hooks or read executable bodies."""
+    from runtime.events import CODEX_EVENTS
+    required = set(CODEX_EVENTS) - {'PreCompact', 'PostCompact'}
+    try:
+        document = json.loads((paths.codex_home / 'hooks.json').read_text())
+    except FileNotFoundError:
+        return 'absent'
+    except (OSError, ValueError):
+        return 'conflict'
+    if not isinstance(document, dict) or not isinstance(document.get('hooks', {}), dict):
+        return 'conflict'
+    counts = dict.fromkeys(required, 0)
+    found = conflict = legacy = False
+    expected = app.resolve() / 'Contents/Resources/utilities/cc-status'
+    for event, groups in document.get('hooks', {}).items():
+        if not isinstance(groups, list):
+            conflict = True
+            continue
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get('hooks'), list):
+                conflict = True
+                continue
+            for hook in group['hooks']:
+                if not isinstance(hook, dict) or not isinstance(hook.get('command'), str):
+                    continue
+                command = hook['command']
+                # These names establish evidence of a writer/wrapper. Do not guess
+                # what an unrelated executable does or inspect its contents.
+                legacy |= bool(re.search(r'(?<![\w-])(?:codex-)?iterm2-status(?![\w-])', command))
+                if 'cc-status' not in command:
+                    continue
+                found = True
+                try:
+                    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+                    lexer.whitespace_split = True
+                    lexer.commenters = ''
+                    tokens = list(lexer)
+                    executable = Path(tokens[0]) if tokens else Path('.')
+                    matches = executable.is_absolute() and executable.resolve(strict=True) == expected
+                    valid = (hook.get('type') == 'command' and matches and
+                             tokens[1:] == ['--agent', 'codex'] and
+                             group.get('matcher', '') in ('', '*') and
+                             event in required and not hook.get('async', False))
+                except (OSError, RuntimeError, ValueError):
+                    valid = False
+                if valid:
+                    counts[event] += 1
+                else:
+                    conflict = True
+    if not found:
+        return 'conflict' if conflict else 'absent'
+    if conflict or legacy or _legacy_codex_status(paths) or any(count != 1 for count in counts.values()):
+        return 'conflict'
+    return 'complete'
+
+
+def status_installations(paths: Paths, app: Path | None = None) -> dict:
+    """Return booleans only; never expose foreign hooks/env/settings bodies."""
+    installed={}
+    if _legacy_codex_status(paths):
+        installed['codex-status']={'enabled':True}
+    if app:
+        native = native_codex_hook_state(paths, app)
+        if native != 'absent':
+            installed['codex-native-status'] = {'enabled': True} if native == 'complete' else {'conflict': True}
     try:
         document=json.loads(paths.claude_settings.read_text())
         expected={str(paths.home/'.config/iterm2/cc-status')}

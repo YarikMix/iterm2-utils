@@ -13,6 +13,7 @@ EXPORT_FILES = (
     'README.md',
     'THIRD_PARTY_NOTICES.md',
     'docs/compatibility.md',
+    'docs/native-status-events.md',
     'docs/notification-events.md',
     'iterm2_utils/__init__.py',
     'iterm2_utils/__main__.py',

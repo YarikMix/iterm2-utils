@@ -16,6 +16,48 @@ UUID='11111111-2222-3333-4444-555555555555'
 class RuntimeTests(unittest.TestCase):
     def event(self,name,**extra):
         return events.normalize(dict(session_id='s',hook_event_name=name,**extra),'codex',UUID)
+    def test_codex_events_match_released_schema(self):
+        self.assertEqual(set(events.CODEX_EVENTS), {
+            'SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse',
+            'PermissionRequest', 'PostToolUse', 'PreCompact', 'PostCompact',
+            'SubagentStart', 'SubagentStop', 'Stop', 'Interrupt'})
+        self.assertEqual(len(events.CODEX_EVENTS), 12)
+        self.assertIs(events.EVENTS, events.CODEX_EVENTS)
+        for name in events.CODEX_EVENTS:
+            with self.subTest(name=name):
+                self.assertIsNotNone(self.event(name))
+        for name in ('Notification', 'StopFailure', 'PostToolUseFailure'):
+            self.assertIsNotNone(events.normalize(
+                {'session_id': 's', 'hook_event_name': name}, 'claude', UUID))
+
+    def test_terminal_environment_validates_all_present_sources(self):
+        other = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'
+        lower = other.lower()
+        cases = [
+            ({'TERM_SESSION_ID': 'w0t0p0:'+UUID}, UUID),
+            ({'ITERM_SESSION_ID': UUID}, UUID),
+            ({'ITERM_SESSION_ID': lower}, other),
+            ({'TERM_SESSION_ID': 'w12t3p4:'+lower}, other),
+            ({'ITERM_SESSION_ID': UUID, 'TERM_SESSION_ID': 'w0t0p0:'+UUID}, UUID),
+            ({'ITERM_SESSION_ID': 'w1t2p3:'+lower, 'TERM_SESSION_ID': other}, other),
+            ({'ITERM_SESSION_ID': UUID, 'TERM_SESSION_ID': 'w0t0p0:'+other}, None),
+            ({'ITERM_SESSION_ID': 'bad', 'TERM_SESSION_ID': UUID}, None),
+            ({'ITERM_SESSION_ID': UUID, 'TERM_SESSION_ID': 'bad'}, None),
+            ({'ITERM_SESSION_ID': '', 'TERM_SESSION_ID': UUID}, None),
+            ({'ITERM_SESSION_ID': UUID, 'TERM_SESSION_ID': ''}, None),
+            ({'TERM_SESSION_ID': UUID+';touch bad'}, None),
+            ({'TERM_SESSION_ID': '$(bad):'+UUID}, None),
+            ({}, None),
+        ]
+        for environment, expected in cases:
+            with self.subTest(environment=environment):
+                self.assertEqual(events.terminal_from_environment(environment), expected)
+
+    def test_payload_terminal_uuid_must_match_environment(self):
+        raw = {'session_id': 's', 'hook_event_name': 'Stop',
+               'terminal_uuid': 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'}
+        self.assertIsNone(events.normalize(raw, 'codex', UUID))
+
     def test_wrong_uuid_is_noop(self):
         for terminal in ('active','all','',UUID+';bad'):
             self.assertIsNone(events.normalize({'session_id':'s','hook_event_name':'Stop'},'codex',terminal))
