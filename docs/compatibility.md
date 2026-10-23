@@ -6,14 +6,14 @@ it does not establish Linux product support. This beta has no stable-production
 acceptance claim.
 
 Native migration local verification, 2026-10-23: the exact tested **pre-documentation
-code snapshot** is commit `fbe38f1fc2fb9a801d678df5fe436dd7cc42f89e`.
+code snapshot** is commit `00232d7bf7f240ab085bac89c17ad7002e659b94`.
 The verification matrix update follows that commit and changes documentation only;
 this SHA identifies the code/tests that passed, rather than a self-referencing final
 documentation commit. No native migration CI, model-behavior or live run is claimed.
 
 | Local command / scope | Actual result |
 | --- | --- |
-| `python3 -m unittest discover -s tests -t . -v` | 404 tests, PASS; includes the 6 export tests and extracted-archive installed hook smoke |
+| `python3 -m unittest discover -s tests -t . -v` | 413 tests, PASS; includes the 6 export tests and extracted-archive installed hook smoke |
 | `/bin/zsh tests/test_codex_shell.zsh` | PASS (`Codex dispatcher tests passed`) |
 | `/bin/zsh tests/restore/test_codex.zsh` | 37 tests, PASS (`pass=37 fail=0`) |
 | `python3 tools/check_sources.py` | 27 pinned sources verified; unchanged vendor hashes/licenses |
@@ -53,6 +53,20 @@ unverified source on unknown versions. Backend/capability readiness, installed
 files, child exit0 and `status_api: ready` do not verify loaded hook delivery.
 External complete native sets are reused without ownership or adapter-only
 input/compact guarantees; external legacy reuse is not a native migration.
+If a known legacy plugin is enabled after the package already owns an active
+status writer (including beta.1), update and doctor report a conflict. They do
+not silently retire or adopt either writer. Explicit `--adopt-legacy` can disable
+the recognized plugin transactionally; removing package status preserves the
+external plugin and remaining independently selected consumers.
+
+Final-review regressions also run synthetic native processes and grandchildren,
+then send real SIGTERM to the hook during delivery and before `Popen.pid` is
+registered. Both cases verify group cleanup, bounded exit0/`{}` output and restored
+signal handlers. Real `/bin/sh` fixture execution confirms that `nice -n 5` and
+leading output redirection invoke native; discovery treats those shell forms as
+conflicts, and install leaves the fixture unchanged. Ordinary status names in
+arguments, comments and redirection targets remain negative classifier cases.
+These subprocess tests do not use iTerm2 or real agent settings.
 
 Automated acceptance uses TemporaryDirectory HOME, fake app bundles, preference
 adapters and CLI runners. All seven feature IDs can be selected explicitly;
