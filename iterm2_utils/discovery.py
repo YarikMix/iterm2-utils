@@ -233,8 +233,16 @@ def _shell_substitutions(command):
                 index += 2
                 continue
             if quote is None and char == '#' and word_start:
-                newline = command.find('\n', index)
-                index = len(command) if newline == -1 else newline
+                # Backquotes are delimited before their body is parsed as shell
+                # code: even a body comment cannot hide an unescaped closer.
+                while index < len(command) and command[index] != '\n':
+                    if terminator == '`':
+                        if command[index] == '`':
+                            return index
+                        if command[index] == chr(92) and index + 1 < len(command):
+                            index += 2
+                            continue
+                    index += 1
                 continue
             if quote == "'":
                 if char == "'":

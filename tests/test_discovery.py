@@ -306,3 +306,31 @@ class NativeCodexDiscoveryTests(unittest.TestCase):
                         expected = 'conflict' if executing else ('complete' if complete else 'absent')
                         self.assertEqual(discovery.native_codex_hook_state(paths, f.app), expected)
                         self.assertEqual(f.snapshot(), before)
+
+    def test_backtick_comments_do_not_consume_substitution_boundary(self):
+        actual = '/third-party/cc-status --agent codex'
+        bodies = (
+            ('/third-party/record-event `printf ordinary # ignored`', False),
+            ('/third-party/record-event "`printf ordinary # ignored`"', False),
+            ('/third-party/record-event `printf ordinary # '+actual+'`', False),
+            ('/third-party/record-event `printf ordinary # '+chr(92)+'` ignored`', False),
+            ('/third-party/record-event `printf ordinary # ignored\nprintf more`', False),
+            ('/third-party/record-event `'+actual+' # ignored`', True),
+            ('/third-party/record-event `printf ordinary # ignored\n'+actual+'`', True),
+            ('/third-party/record-event `printf ordinary # ignored` "$('+actual+')"', True),
+            ('/third-party/record-event "$(printf ordinary # ) '+actual+'\n)"', False),
+        )
+        for body, executing in bodies:
+            for wrapped in (False, True):
+                command = 'sh -c '+shlex.quote(body) if wrapped else body
+                for complete in (False, True):
+                    with self.subTest(body=body, wrapped=wrapped, complete=complete), Fixture() as f:
+                        paths = resolve_paths()
+                        hooks = self.hooks(f.app) if complete else {}
+                        hooks.setdefault('Stop', []).append(
+                            {'hooks': [{'type': 'command', 'command': command}]})
+                        self.write_hooks(paths, hooks)
+                        before = f.snapshot()
+                        expected = 'conflict' if executing else ('complete' if complete else 'absent')
+                        self.assertEqual(discovery.native_codex_hook_state(paths, f.app), expected)
+                        self.assertEqual(f.snapshot(), before)
