@@ -12,7 +12,7 @@ class ShellFixture:
         tmp = TemporaryDirectory(); self.addCleanup(tmp.cleanup)
         p = Path(tmp.name) / "Юникод space ' $(touch INJECTED)"
         p.mkdir(); self.root=p
-        self.context=Context(Paths(p,p/'zshrc',p/'codex',p/'claude.json',p/'config',p/'cache',p/'data',p/'profiles',REPO),{'python3':Path('/usr/bin/python3'),'it2':p/'iTerm.app/Contents/Resources/utilities/it2','iterm2':p/'iTerm.app'},{},frozenset({'codex:no-daemon'}),{}, {})
+        self.context=Context(Paths(p,p/'zshrc',p/'codex',p/'claude.json',p/'config',p/'cache',p/'data',p/'profiles',REPO),{'python3':Path('/usr/bin/python3'),'it2':p/'iTerm.app/Contents/Resources/utilities/it2','iterm2':p/'iTerm.app'},{'iterm2':'3.7.6','python3':'3.11.9'},frozenset({'codex:no-daemon','iterm2:cc-status-codex'}),{}, {})
     def selection(self, features=('shell',)):
         return Selection(frozenset({'codex'}),frozenset(features),frozenset(),'Default')
 

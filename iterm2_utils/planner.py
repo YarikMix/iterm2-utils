@@ -83,8 +83,9 @@ def plan(context: Context, selection: Selection) -> Plan:
                'capabilities': sorted(context.capabilities)}
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     changes = ChangeSet([], [], findings)
-    # External status is reused without installing a competing shell/runtime copy.
-    reused = context.installed.get('codex-status',{}).get('enabled') and not selected.adopt_legacy
+    # Legacy reuse keeps its shell path; native reuse still needs --no-daemon.
+    reused = (context.installed.get('codex-status',{}).get('enabled')
+              and not context.installed.get('codex-native-status') and not selected.adopt_legacy)
     runtime_selection = selected.without({'status'}, {'codex'}) if reused else selected
     for builder, choice in ((migration.build,selected),(restore.build,selected),(profiles.build,selected),
                             (shell.runtime_payload,runtime_selection),(shell.build,runtime_selection),

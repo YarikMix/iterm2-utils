@@ -33,3 +33,12 @@ class SelectionTests(unittest.TestCase):
             for features, shortcuts in (({'shell'}, {'ctrl-q'}), ({'shortcuts'}, set()), ({'shortcuts'}, {'unknown'})):
                 findings = validate(Selection(frozenset({'codex'}), frozenset(features), frozenset(shortcuts), 'Default'), context)
                 self.assertTrue(any(x.state == 'conflict' for x in findings))
+
+    def test_legacy_status_reuse_does_not_install_second_shell_wrapper(self):
+        with Fixture() as f:
+            from dataclasses import replace
+            context=replace(discover(resolve_paths(),f.runner),installed={'codex-status':{'enabled':True}})
+            selection=Selection(frozenset({'codex'}),frozenset({'status'}),frozenset(),'Default')
+            result=plan(context,selection)
+            self.assertFalse(result.changes.edits)
+            self.assertTrue(any(f.code=='existing_status' for f in result.changes.findings))

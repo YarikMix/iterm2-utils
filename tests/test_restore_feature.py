@@ -13,6 +13,14 @@ from iterm2_utils.features import shell
 from tests.support import Fixture
 
 class RestoreFeatureTests(unittest.TestCase):
+    def hook_environment(self, fixture, hook):
+        # A synthetic panel must not inherit the developer's terminal/tmux address.
+        environment={**fixture.environ,'HOME':str(fixture.root),'PYTHONPATH':str(hook.parent.parent)}
+        environment['TERM_SESSION_ID']=environment['ITERM_SESSION_ID']
+        for key in ('TMUX','TMUX_PANE'):
+            environment.pop(key,None)
+        return environment
+
     def context(self, fixture):
         context=discover(resolve_paths(),fixture.runner)
         return replace(context,executables={**context.executables,'fzf':fixture.bin/'fzf','python3':Path(sys.executable)},versions={**context.versions,'fzf':'0.60.0'})
@@ -119,7 +127,7 @@ class RestoreFeatureTests(unittest.TestCase):
         settings.write_text(json.dumps({'restore':True,'status':True,'it2':str(fixture.tools.it2),'cache':str(fixture.root/'status'),'restore_codex_home':str(fixture.home),'restore_cache':str(fixture.root/'cache'),'restore_process':'/Applications/iTerm.app/Contents/MacOS/iTerm2'}))
         hook=Path(__file__).resolve().parents[1]/'runtime/hook.py'
         start=time.monotonic()
-        result=subprocess.run([sys.executable,str(hook),'--agent','codex','--settings',str(settings)],input=json.dumps(fixture.event),env={**fixture.environ,'HOME':str(fixture.root),'PYTHONPATH':str(hook.parent.parent)},text=True,capture_output=True,timeout=4)
+        result=subprocess.run([sys.executable,str(hook),'--agent','codex','--settings',str(settings)],input=json.dumps(fixture.event),env=self.hook_environment(fixture,hook),text=True,capture_output=True,timeout=4)
         self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
         self.assertLess(time.monotonic()-start,3.2)
         pid=int(fixture.tools.pid.read_text())
@@ -135,7 +143,7 @@ class RestoreFeatureTests(unittest.TestCase):
         settings=fixture.root/'runtime.json'
         settings.write_text(json.dumps({'restore':True,'it2':str(fixture.tools.it2),'restore_codex_home':str(fixture.home),'restore_cache':str(fixture.root/'cache'),'restore_process':'/Applications/iTerm.app/Contents/MacOS/iTerm2'}))
         hook=Path(__file__).resolve().parents[1]/'runtime/hook.py'
-        result=subprocess.run([sys.executable,str(hook),'--agent','codex','--settings',str(settings)],input=json.dumps(fixture.event),env={**fixture.environ,'HOME':str(fixture.root),'PYTHONPATH':str(hook.parent.parent)},text=True,capture_output=True,timeout=4)
+        result=subprocess.run([sys.executable,str(hook),'--agent','codex','--settings',str(settings)],input=json.dumps(fixture.event),env=self.hook_environment(fixture,hook),text=True,capture_output=True,timeout=4)
         self.assertEqual((result.returncode,result.stdout,result.stderr),(0,'{}\n',''))
         self.assertEqual(store.read(fixture.paths,'tabs.json')['tabs'][0]['session']['session_id'],SID)
         for path in fixture.paths.state_dir.iterdir():
