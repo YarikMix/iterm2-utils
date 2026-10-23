@@ -31,10 +31,12 @@ def build(context, selection):
             changes.findings.append(Finding('status','codex','native_hook_conflict','conflict',
                 'Conflicting native/legacy status writers require explicit resolution before installing status.'))
             if owned_status:
-                # A retained writer shares settings/hooks with notifications and
-                # restore. Their checkpoints must not commit a missing rebuild.
-                changes.findings.append(Finding('status',None,'hook_conflict','conflict',
-                    'Owned visible status prevents safe shared hook/runtime recomposition while external native hooks are active.'))
+                # Only Python runtime consumers need this shared rebuild;
+                # Claude's native status UI checkpoint remains independent.
+                for pair in sorted(runtime_consumers - {'codex:status'}):
+                    agent, feature = pair.split(':',1)
+                    changes.findings.append(Finding(feature,agent,'native_hook_conflict','conflict',
+                        'Owned visible status prevents safe shared hook/runtime recomposition while external native hooks are active.'))
             return changes
         if native.get('enabled'):
             native_reused=True

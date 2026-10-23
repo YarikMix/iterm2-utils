@@ -303,3 +303,21 @@ class LifecycleTests(LifecycleFixture):
                 self.assertTrue(any(f.state=='conflict' for f in result.findings))
                 self.assertNotIn(feature,result.receipt.selection.features)
                 self.assertEqual(fixture.snapshot(),before)
+
+    def test_native_codex_collision_keeps_claude_status_ui_independent(self):
+        for retained_notifications in (False,True):
+            with self.subTest(retained_notifications=retained_notifications):
+                fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+                fixture.assertSuccess(fixture.install('status'))
+                if retained_notifications:
+                    fixture.assertSuccess(fixture.install('notifications',agents=('claude',)))
+                fixture.context.installed['codex-native-status']={'enabled':True}
+                paths=[fixture.context.paths.config/'runtime.json',fixture.context.paths.codex_home/'hooks.json',fixture.context.paths.claude_settings]
+                before={path:path.read_bytes() if path.exists() else None for path in paths}
+                result=fixture.install('status',agents=('claude',))
+                fixture.assertSuccess(result)
+                expected={'codex:status','claude:status'} | ({'claude:notifications'} if retained_notifications else set())
+                self.assertEqual(result.receipt.selection.pairs,expected)
+                self.assertEqual([(s.code,s.agent) for s in result.receipt.pending_ui],[('claude-native-status','claude')])
+                self.assertIn('claude-native-status',result.receipt.ui_snapshots)
+                self.assertEqual({path:path.read_bytes() if path.exists() else None for path in paths},before)

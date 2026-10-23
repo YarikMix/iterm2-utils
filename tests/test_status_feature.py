@@ -139,3 +139,17 @@ class StatusFeatureTests(unittest.TestCase):
                 self.assertEqual(result.consumers.get('shared:codex-hooks',frozenset()),codex_pairs)
                 payload=shell.runtime_payload(context,selection)
                 self.assertFalse(any(e.path.name in {'cc-status','it2'} for e in payload.edits))
+
+    def test_owned_collision_findings_target_only_python_runtime_consumers(self):
+        from tests.test_lifecycle import LifecycleFixture
+        fixture=LifecycleFixture();fixture.setUp();self.addCleanup(fixture.doCleanups)
+        fixture.assertSuccess(fixture.install('status'))
+        fixture.context.installed['codex-native-status']={'enabled':True}
+        selection=Selection(frozenset({'codex','claude'}),frozenset({'status','notifications','restore'}),frozenset(),'Default',
+                            agent_features={'codex':['status','notifications','restore'],'claude':['status','notifications']})
+        result=status.build(fixture.context,selection)
+        blockers=[f for f in result.findings if f.state=='conflict']
+        self.assertEqual({(f.agent,f.feature) for f in blockers},
+                         {('codex','status'),('codex','notifications'),('codex','restore'),('claude','notifications')})
+        self.assertEqual([(s.code,s.agent) for s in result.ui],[('claude-native-status','claude')])
+        self.assertEqual(result.edits,[])
