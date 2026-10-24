@@ -4,6 +4,22 @@ from iterm2_utils.config import jsonfile, tomlfile, zshrc
 
 
 class ConfigTests(unittest.TestCase):
+    def test_quoted_key_del_escape_preserves_unicode_and_non_bmp_roundtrip(self):
+        cases = ((chr(127), '"'+chr(92)+'u007f"'),
+                 ('ключ🔑', '"ключ🔑"'),
+                 ('ключ'+chr(127)+'🔑', '"ключ'+chr(92)+'u007f🔑"'))
+        prefix = b'[tui]\n# foreign bytes\nother = """keep\ntext"""\n'
+        for key, token in cases:
+            with self.subTest(key=key):
+                original = prefix+(token+' = "always"\n').encode()
+                self.assertEqual(tomlfile.parse(original), {'tui': {'other': 'keep\ntext', key: 'always'}})
+                result = tomlfile.patch(original, ('tui', key), 'never')
+                self.assertEqual(tomlfile.parse(result), {'tui': {'other': 'keep\ntext', key: 'never'}})
+                self.assertTrue(result.startswith(prefix))
+                self.assertNotIn(bytes([127]), result)
+                restored = tomlfile.patch(result, ('tui', key), 'always')
+                self.assertEqual(tomlfile.parse(restored), {'tui': {'other': 'keep\ntext', key: 'always'}})
+
     ARRAY_TABLES = (
         b'[plugins."iterm2-status@known"]\nenabled = true\n\n'
         b'[[skills.config]] # first foreign entry\n"skill.name" = "first"\n'

@@ -33,7 +33,7 @@ class FeatureTests(unittest.TestCase):
         from iterm2_utils.discovery import discover, resolve_paths
         from iterm2_utils.models import Selection
         from tests.support import Fixture
-        for version in ('0.165.0', 'unknown'):
+        for version in ('0.165.0', 'unknown', '0.164.0-alpha.1', '0.164.0-dev', '0.164.0+build.7'):
             with self.subTest(version=version), Fixture() as f:
                 f.runner.responses['codex'] = version+' --no-daemon'
                 context = discover(resolve_paths(), f.runner)

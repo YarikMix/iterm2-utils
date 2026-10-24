@@ -12,6 +12,17 @@ from iterm2_utils import discovery
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_codex_prerelease_and_build_tokens_do_not_inherit_stable_capabilities(self):
+        for release in ('0.163.0', '0.164.0'):
+            for suffix in ('-alpha.1', '-dev', '+build.7', '-alpha.1+build.7'):
+                version = release+suffix
+                with self.subTest(version=version), Fixture() as f:
+                    f.runner.responses['codex'] = 'codex-cli '+version+' --no-daemon'
+                    context = discover(resolve_paths(), f.runner)
+                    self.assertEqual(context.versions['codex'], version)
+                    self.assertNotIn('codex:approval-notifications', context.capabilities)
+                    self.assertNotIn('codex:alt-enter', context.capabilities)
+
     def test_notifier_uses_read_only_single_dash_version_probe(self):
         with Fixture() as f:
             run = f.runner.run
@@ -48,7 +59,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_codex_approval_policy_only_exact_source_verified_versions(self):
         for version, supported in (('0.163.0', True), ('0.164.0', True),
-                                   ('0.165.0', False), ('unknown', False)):
+                                   ('0.165.0', False), ('unknown', False), ('0.0.164.0', False)):
             with self.subTest(version=version), Fixture() as f:
                 f.runner.responses['codex'] = 'codex-cli '+version+' --no-daemon'
                 context = discover(resolve_paths(), f.runner)

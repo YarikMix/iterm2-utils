@@ -96,6 +96,8 @@ def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
         if kind == 'value' and len(address) < len(pointer) and pointer[:len(address)] == address:
             raise ValueError('Inline TOML table cannot be edited')
     token = key if _NAME.fullmatch(key) else json.dumps(key, ensure_ascii=False)
+    # TOML forbids literal DEL; preserve Unicode without JSON surrogate pairs.
+    token = token.replace(chr(127), chr(92)+'u007f')
     replacement = '' if remove else token + ' = ' + literal(value) + '\n'
     matches = [s for s in spans if s[0]=='value' and s[1] == pointer]
     if matches:

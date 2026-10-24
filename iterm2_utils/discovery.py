@@ -62,7 +62,8 @@ def _probe(runner, binary, args):
 
 
 def _version(output):
-    match = re.search(r'\b\d+\.\d+(?:\.\d+)?\b', output)
+    # Keep release qualifiers: exact capability gates must not see a stable prefix.
+    match = re.search(r'(?<![\w.+-])\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)*(?![\w.+-])', output)
     return match.group() if match else 'unknown'
 
 
