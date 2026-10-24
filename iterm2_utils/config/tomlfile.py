@@ -36,13 +36,16 @@ def literal(value):
 def _spans(content):
     lines = content.decode().splitlines(keepends=True)
     result, table, i = [], (), 0
+    arrays, opaque = set(), False
     while i < len(lines):
         stripped = lines[i].strip()
         if not stripped or stripped.startswith('#'):
             i += 1
             continue
         if stripped.startswith('['):
-            match = re.fullmatch(r'\[(.+)\]\s*(?:#.*)?', stripped)
+            array = stripped.startswith('[[')
+            pattern = r'\[\[(.+)\]\]\s*(?:#.*)?' if array else r'\[(.+)\]\s*(?:#.*)?'
+            match = re.fullmatch(pattern, stripped)
             if not match:
                 raise ValueError('Unsupported TOML table form')
             parsed = tomllib.loads('['+match[1]+']')
@@ -53,7 +56,10 @@ def _spans(content):
             if parsed != {}:
                 raise ValueError('Unsupported TOML table form')
             table = tuple(address)
-            result.append(('table',table,i,i+1))
+            if array:
+                arrays.add(table)
+            opaque = any(table[:len(root)] == root for root in arrays)
+            result.append(('array' if array else 'opaque' if opaque else 'table',table,i,i+1))
             i += 1
             continue
         start = i
@@ -66,6 +72,8 @@ def _spans(content):
                 continue
         else:
             raise ValueError('Unsupported TOML statement')
+        if opaque:
+            continue
         # Match one complete key token; dots/equals inside quotes are data.
         match = re.match(r'''\s*("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_-]+)\s*=''', lines[start])
         if not match or len(item) != 1:
@@ -83,6 +91,8 @@ def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
     parent, key = pointer[:-1], pointer[-1]
     # Editing through an inline table would silently replace neighboring values.
     for kind, address, start, end in spans:
+        if kind == 'array' and (pointer[:len(address)] == address or address[:len(pointer)] == pointer):
+            raise ValueError('Array-of-tables TOML cannot be edited')
         if kind == 'value' and len(address) < len(pointer) and pointer[:len(address)] == address:
             raise ValueError('Inline TOML table cannot be edited')
     token = key if _NAME.fullmatch(key) else json.dumps(key, ensure_ascii=False)
@@ -97,7 +107,7 @@ def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
         headers = [s for s in spans if s[0]=='table' and s[1] == parent]
         if headers:
             start = headers[0][3]
-            end = next((s[2] for s in spans if s[0]=='table' and s[2]>=start),len(lines))
+            end = next((s[2] for s in spans if s[0] in {'table', 'array', 'opaque'} and s[2]>=start),len(lines))
             if end and not lines[end-1].endswith('\n'):
                 lines[end-1] += '\n'
             lines.insert(end,replacement)

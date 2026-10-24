@@ -15,6 +15,9 @@
    фильтрация по `approval-requested` подтверждена исходниками release commit
    `6aaac694803004a63c6f393d153c96d22521a6b9`:
    `codex-rs/tui/src/chatwidget/notifications.rs` и `core/config.schema.json`.
+4. После исправления quoted key реальный read-only preview выявил следующий
+   независимый запрет scanner: посторонний `[[skills.config]]`. Редактировать этот
+   массив не требуется; его opaque пропуск должен позволять правку plugin.enabled.
 
 ## Требуемое поведение
 
@@ -22,6 +25,10 @@
   отличая имя с точкой внутри кавычек от настоящего dotted path. Правка выбранного
   ключа сохраняет все другие statements побайтно. Quoted replacement key обязан
   оставаться валидным. Настоящие dotted и inline edits остаются конфликтом.
+- Непересекающиеся массивы таблиц сканировать как opaque; сохранять все их bytes,
+  repeated entries и вложенные normal headers. Edits внутри/через AoT и ancestor
+  значения остаются конфликтом. После выхода в независимую обычную таблицу её
+  scalar values редактируются как прежде. Не добавлять общий TOML serializer.
 - Для terminal-notifier использовать только read-only `-version`, для остальных
   программ сохранить прежние probes. Не отправлять уведомления ради discovery.
 - Добавить ровно 0.164.0 в проверенную approval-notifications capability; неизвестные
@@ -44,3 +51,6 @@ key и inline parent сохраняют conflict. Fake terminal-notifier отк�
 реальный preview, выполняет миграцию и проверяет receipt/settings/hooks; загрузка
 новых hooks может потребовать новой сессии и человеческого trust. Не перезапускать
 текущий разговор. Live API readiness не объявлять доказательством доставки событий.
+Отдельная регрессия: repeated `[[skills.config]]` с nested
+`[skills.config.options]`, quoted/multiline values и следующей независимой таблицей;
+изменение plugins.enabled сохраняет AoT побайтно, edits AoT/его ancestor блокируются.

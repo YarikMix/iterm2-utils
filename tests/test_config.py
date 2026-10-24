@@ -4,6 +4,50 @@ from iterm2_utils.config import jsonfile, tomlfile, zshrc
 
 
 class ConfigTests(unittest.TestCase):
+    ARRAY_TABLES = (
+        b'[plugins."iterm2-status@known"]\nenabled = true\n\n'
+        b'[[skills.config]] # first foreign entry\n"skill.name" = "first"\n'
+        b'description = """keep\n[[fake.array]]\nenabled = true\ntext"""\n'
+        b'[skills.config.options]\nlimits.max = 2\ninline = { other = true }\n'
+        b"[[skills.'config']] # repeated entry\n'skill.name' = 'second'\n"
+        b"description = '''keep\n[tui]\nnotifications = true\nmore text'''\n"
+        b'[skills.config.options]\n"option.name" = false\n\n'
+        b'[tui]\nnotifications = true\nother = "preserve"\n'
+    )
+
+    def test_unrelated_array_tables_preserve_every_byte_during_scalar_edits(self):
+        cases = ((('plugins', 'iterm2-status@known', 'enabled'), False,
+                  b'[plugins."iterm2-status@known"]\nenabled = true\n',
+                  b'[plugins."iterm2-status@known"]\nenabled = false\n'),
+                 (('tui', 'notifications'), ['approval-requested'],
+                  b'[tui]\nnotifications = true\nother',
+                  b'[tui]\nnotifications = ["approval-requested"]\nother'))
+        for pointer, value, before, after in cases:
+            with self.subTest(pointer=pointer):
+                result = tomlfile.patch(self.ARRAY_TABLES, pointer, value)
+                self.assertEqual(result, self.ARRAY_TABLES.replace(before, after))
+                original, changed = tomlfile.parse(self.ARRAY_TABLES), tomlfile.parse(result)
+                original_parent, changed_parent = original, changed
+                for part in pointer[:-1]:
+                    original_parent, changed_parent = original_parent[part], changed_parent[part]
+                self.assertEqual(changed_parent.pop(pointer[-1]), value)
+                original_parent.pop(pointer[-1])
+                self.assertEqual(changed, original)
+
+    def test_array_table_descendants_and_ancestors_remain_unsupported(self):
+        for pointer in (('skills',), ('skills', 'config'), ('skills', 'config', 'skill.name'),
+                        ('skills', 'config', 'options'), ('skills', 'config', 'options', 'option.name'),
+                        ('skills', 'config', 'new'), ('skills', 'config', 'new', 'value')):
+            for remove in (False, True):
+                with self.subTest(pointer=pointer, remove=remove), self.assertRaises(ValueError):
+                    tomlfile.patch(self.ARRAY_TABLES, pointer, False, remove=remove)
+
+    def test_inserting_sibling_value_stops_before_array_table_header(self):
+        original = b'[skills]\nother = true\n[[skills.config]]\nname = "keep"\n'
+        result = tomlfile.patch(original, ('skills', 'extra'), False)
+        self.assertEqual(result, b'[skills]\nother = true\nextra = false\n[[skills.config]]\nname = "keep"\n')
+        self.assertEqual(tomlfile.parse(result), {'skills': {'other': True, 'extra': False, 'config': [{'name': 'keep'}]}})
+
     def test_plugin_toggle_preserves_unrelated_quoted_multiline_statements(self):
         for token in ('"model.example"', "'model.example'", '"model=example"',
                       '"model'+chr(92)+'"example"', "'model\"example'"):

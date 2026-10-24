@@ -17,6 +17,7 @@ Controller применяет CLI отдельно от разработки п�
 - Не читать/менять реальные настройки в workers; только TemporaryDirectory/fake runner.
 - Сохранять foreign settings и исходный текст всех нетронутых statements.
 - Не разрешать настоящие dotted/inline edits; quoted single-component key допустим.
+- AoT допускается только как посторонний opaque блок; edits через/внутри/ancestor AoT запрещены.
 - terminal-notifier probe: `-version`, без отправки баннеров.
 - Только Codex 0.163.0 и 0.164.0 получают approval-notifications capability.
 - Никаких новых событий hooks, Alt+Enter versions или error guarantees.
@@ -44,6 +45,9 @@ Controller применяет CLI отдельно от разработки п�
   quoted replacement roundtrip, dot-inside-name, multiline preservation; dotted/inline
   negative cases; notifier runner rejecting --version but accepting -version;
   0.164.0 approval capability/reversible policy and 0.165.0/unknown blocked.
+  Дополнительный real-preview regression: repeated `[[skills.config]]`, nested
+  `[skills.config.options]`, quoted/multiline values и последующая обычная таблица.
+  Unrelated plugin edit сохраняет AoT bytes; overlapping/ancestor edits конфликтуют.
 - [ ] **Step 2:** Run `python3 -m unittest tests.test_config tests.test_discovery tests.test_notifications_feature -v`; зафиксировать expected failures без production edits.
 - [ ] **Step 3:** Минимальные fixes строго по spec. Для keys использовать tomllib
   разбор реального key token, не split по точке и не вывод значения в diagnostics.
