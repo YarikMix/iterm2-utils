@@ -66,10 +66,11 @@ def _spans(content):
                 continue
         else:
             raise ValueError('Unsupported TOML statement')
-        match = re.match(r'\s*([A-Za-z0-9_-]+)\s*=', lines[start])
+        # Match one complete key token; dots/equals inside quotes are data.
+        match = re.match(r'''\s*("(?:[^"\\]|\\.)*"|'[^']*'|[A-Za-z0-9_-]+)\s*=''', lines[start])
         if not match or len(item) != 1:
             raise ValueError('Unsupported dotted TOML key')
-        key = match[1]
+        key = next(iter(tomllib.loads(match[1] + ' = 0')))
         result.append(('value',table+(key,),start,i))
     return lines, result
 
@@ -84,7 +85,8 @@ def patch(content: bytes, pointer: tuple[str, ...], value, *, remove=False):
     for kind, address, start, end in spans:
         if kind == 'value' and len(address) < len(pointer) and pointer[:len(address)] == address:
             raise ValueError('Inline TOML table cannot be edited')
-    replacement = '' if remove else key + ' = ' + literal(value) + '\n'
+    token = key if _NAME.fullmatch(key) else json.dumps(key, ensure_ascii=False)
+    replacement = '' if remove else token + ' = ' + literal(value) + '\n'
     matches = [s for s in spans if s[0]=='value' and s[1] == pointer]
     if matches:
         _, _, start, end = matches[0]

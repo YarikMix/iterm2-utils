@@ -96,7 +96,7 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
         if not found:
             continue
         binary = Path(found).absolute()
-        output = _probe(runner, binary, ['--version'])
+        output = _probe(runner, binary, ['-version'] if name == 'terminal-notifier' else ['--version'])
         if not output:
             continue
         executables[name] = binary
@@ -112,6 +112,8 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
             # Verified default keymap in rust-v0.163.0; no historical/future floor.
             if versions[name] == '0.163.0':
                 capabilities.add('codex:alt-enter')
+            # Approval filtering independently verified in both exact releases.
+            if versions[name] in {'0.163.0', '0.164.0'}:
                 capabilities.add('codex:approval-notifications')
     osascript = shutil.which('osascript')
     if osascript:

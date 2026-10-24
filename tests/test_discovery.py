@@ -12,6 +12,49 @@ from iterm2_utils import discovery
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_notifier_uses_read_only_single_dash_version_probe(self):
+        with Fixture() as f:
+            run = f.runner.run
+            def notifier_flags(argv, **kwargs):
+                result = run(argv, **kwargs)
+                if Path(argv[0]).name == 'terminal-notifier':
+                    return subprocess.CompletedProcess(argv, 0 if argv[1:] == ['-version'] else 1,
+                                                       'terminal-notifier 3.1.0' if argv[1:] == ['-version'] else '', '')
+                return result
+            f.runner.run = notifier_flags
+            before = f.snapshot()
+            context = discover(resolve_paths(), f.runner)
+            self.assertEqual(context.versions.get('terminal-notifier'), '3.1.0')
+            self.assertEqual(context.executables.get('terminal-notifier'), f.bin/'terminal-notifier')
+            self.assertEqual([call for call in f.runner.calls if Path(call[0][0]).name == 'terminal-notifier'],
+                             [([str(f.bin/'terminal-notifier'), '-version'], 5, None)])
+            for name in ('codex', 'claude', 'zsh', 'python3', 'peekaboo'):
+                self.assertIn(([str(f.bin/name), '--version'], 5, None), f.runner.calls)
+            self.assertEqual(f.snapshot(), before)
+
+    def test_missing_or_failing_notifier_remains_unavailable(self):
+        for missing in (True, False):
+            with self.subTest(missing=missing), Fixture() as f:
+                if missing:
+                    (f.bin/'terminal-notifier').unlink()
+                run = f.runner.run
+                def fail_notifier(argv, **kwargs):
+                    result = run(argv, **kwargs)
+                    return subprocess.CompletedProcess(argv, 1, '', '') if Path(argv[0]).name == 'terminal-notifier' else result
+                f.runner.run = fail_notifier
+                context = discover(resolve_paths(), f.runner)
+                self.assertNotIn('terminal-notifier', context.executables)
+                self.assertNotIn('terminal-notifier', context.versions)
+
+    def test_codex_approval_policy_only_exact_source_verified_versions(self):
+        for version, supported in (('0.163.0', True), ('0.164.0', True),
+                                   ('0.165.0', False), ('unknown', False)):
+            with self.subTest(version=version), Fixture() as f:
+                f.runner.responses['codex'] = 'codex-cli '+version+' --no-daemon'
+                context = discover(resolve_paths(), f.runner)
+                self.assertEqual('codex:approval-notifications' in context.capabilities, supported)
+                self.assertEqual('codex:alt-enter' in context.capabilities, version == '0.163.0')
+
     def test_live_status_accepts_native_terminal_states_without_payload(self):
         from iterm2_utils.models import Selection
         from tests.test_runtime_events import UUID

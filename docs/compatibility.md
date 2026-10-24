@@ -40,6 +40,21 @@ used Python 3.14.8. Consult the linked workflow for current job results. These
 fixture checks do not establish Linux product support or live macOS acceptance.
 These are historical beta CI results, not a CI run for the native status migration.
 
+Migration prerequisite source evidence, 2026-10-24: approval-only TUI policy is
+allowlisted for exactly Codex 0.163.0 and 0.164.0. For rust-v0.164.0, release commit
+`6aaac694803004a63c6f393d153c96d22521a6b9`,
+[`notifications.rs`](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/tui/src/chatwidget/notifications.rs#L72)
+maps exec/edit/elicitation approvals to `approval-requested` (lines 75–77) and
+filters custom notification lists by exact type name (lines 94–98).
+The [Notifications schema](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/core/config.schema.json#L3501)
+accepts boolean or string-array values; [`tui.notifications`](https://github.com/openai/codex/blob/6aaac694803004a63c6f393d153c96d22521a6b9/codex-rs/core/config.schema.json#L5107)
+uses that definition. Unknown/future versions (including 0.165.0) remain blocked.
+This evidence does not extend the Alt+Enter allowlist, registered hook events or
+native error guarantees; the 0.164.0 error source remains limited/unverified.
+Discovery uses only the read-only `terminal-notifier -version` probe, with no
+notification sent. Source inspection and fixture checks do not establish live
+delivery, loaded hooks or a new CI result.
+
 Native status evidence is separated by kind:
 
 | Kind | Evidence / boundary |

@@ -21,7 +21,7 @@ def build(context,selection):
             'Existing notification handler detected. Keep it by leaving notifications unselected, or explicitly choose --coexist-notifications (duplicate banners may occur); foreign handlers will be preserved.') for agent in conflicts)
     if 'codex' in selection.agents_for('notifications') and 'codex' not in conflicts:
         if 'codex:approval-notifications' not in context.capabilities:
-            changes.findings.append(Finding('notifications','codex','native_policy_version','unavailable','Native approval policy is verified only for Codex 0.163.0; this version is unverified.'))
+            changes.findings.append(Finding('notifications','codex','native_policy_version','unavailable','Native approval policy is verified only for Codex 0.163.0 and 0.164.0; this version is unverified.'))
         else:
             path=context.paths.codex_home/'config.toml';before=path.read_bytes() if path.exists() else None
             try:
