@@ -7,6 +7,88 @@ class Runner:
         return subprocess.run(argv, input=stdin, capture_output=True, text=True,
                               timeout=timeout, check=False, env=env)
 
+    def codex_config(self, argv, *, timeout, env, cwd, check_identity):
+        """One owned login-shell/config-read transport; never start a turn."""
+        import json
+        import os
+        import selectors
+        import signal
+        import time
+        deadline = time.monotonic() + timeout
+        process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, env=env, cwd=cwd,
+                                   start_new_session=True)
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        pending = bytearray()
+        received = 0
+
+        def line():
+            nonlocal received
+            while b'\n' not in pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise TimeoutError('launch_config_unverified')
+                chunk = os.read(process.stdout.fileno(), 8192)
+                received += len(chunk)
+                if not chunk or received > 1048576:
+                    raise ValueError('launch_config_unverified')
+                pending.extend(chunk)
+            value, _, remainder = pending.partition(b'\n')
+            pending[:] = remainder
+            return value.decode('utf-8')
+
+        def send(value):
+            process.stdin.write((json.dumps(value)+'\n').encode())
+            process.stdin.flush()
+
+        def response(identity):
+            while True:
+                item = json.loads(line())
+                if not isinstance(item, dict):
+                    raise ValueError('launch_config_unverified')
+                if item.get('id') == identity:
+                    if 'error' in item or not isinstance(item.get('result'), dict):
+                        raise ValueError('launch_config_unverified')
+                    return item['result']
+
+        try:
+            while True:
+                raw = line()
+                try:
+                    item = json.loads(raw)
+                except ValueError:
+                    continue  # Login startup output is private and discarded.
+                if isinstance(item, dict) and 'iterm2_launch_identity' in item:
+                    identity = check_identity(item['iterm2_launch_identity'])
+                    break
+            process.stdin.write(b'iterm2-utils-continue\n')
+            process.stdin.flush()
+            send({'id': 1, 'method': 'initialize', 'params': {
+                'clientInfo': {'name': 'iterm2-utils', 'version': '1'},
+                'capabilities': {'experimentalApi': False}}})
+            response(1)
+            send({'method': 'initialized'})
+            send({'id': 2, 'method': 'config/read', 'params': {
+                'cwd': str(cwd), 'includeLayers': False}})
+            config = response(2).get('config')
+            if not isinstance(config, dict):
+                raise ValueError('launch_config_unverified')
+            return identity, config
+        finally:
+            selector.close()
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
+            # Only this transport's fresh process group is ours to terminate.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=1)
+            process.stdout.close()
+
     def mcp_probe(self, argv: list[str], *, timeout: float, env: dict[str, str] | None = None) -> dict:
         """Bounded stdio MCP handshake; discard all content except tool names.
 
