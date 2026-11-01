@@ -2,6 +2,9 @@
 import importlib
 import importlib.util
 import json
+import os
+import select
+import signal
 import shlex
 import subprocess
 import sys
@@ -32,7 +35,9 @@ class LaunchTests(unittest.TestCase):
             home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
             functions={}, alias='', restore_root='', python=''))
         inspection = LaunchInspection(f.app/'Contents/Resources/utilities/it2', f.bin/'zsh', 'profile-one', identity)
-        state = dict(job='codex', applied=request.profile, guid='profile-one', created_key='tab-one',
+        state = dict(title='codex', command_line='codex -C '+str(request.cwd)+
+                     ' Read the handoff file at '+str(request.handoff)+' and carry out the task described there.',
+                     job='codex', applied=request.profile, guid='profile-one', created_key='tab-one',
                      create_error=False, inventory_error=False, no_sessions=False, calls=[], active='window-one')
 
         def run(transport, argv, c_locale=False):
@@ -59,7 +64,8 @@ class LaunchTests(unittest.TestCase):
                 self.assertEqual(args[3:], ['--session', SID.upper()])
                 if state.get('variable_error'):
                     raise subprocess.CalledProcessError(1, argv, stderr='PRIVATE_STDERR')
-                return json.dumps(state['applied'] if args[2] == 'session.profileName' else state['job'])+'\n'
+                return json.dumps(state[{'session.profileName': 'applied', 'session.jobName': 'job',
+                    'session.processTitle': 'title', 'session.commandLine': 'command_line'}[args[2]]])+'\n'
             raise AssertionError('Unexpected/mutating call: '+repr(argv))
 
         self.addCleanup(patch.stopall)
@@ -118,6 +124,121 @@ class LaunchTests(unittest.TestCase):
             code, output = m.launch(request, paths, f.runner)
             self.assertEqual((code, output['status'], output['session_id']), (3, 'created_unverified', SID))
             self.assertEqual(sum(a[1:3] == ['tab', 'new'] for a in state['calls']), 1)
+
+    def test_helper_or_incomplete_command_line_is_not_launched(self):
+        for command_line in ('codex --version', 'codex --help', '', 'codex app-server --stdio',
+                             'codex -C /other Read the handoff file at /other', 'codex -C'):
+            with self.subTest(command_line=command_line), Fixture() as f:
+                m, paths, request, _, state = self.fixture(f)
+                state['command_line'] = command_line
+                code, output = m.launch(request, paths, f.runner)
+                self.assertEqual((code, output['status']), (3, 'created_unverified'))
+                self.assertEqual(sum(a[1:3] == ['tab', 'new'] for a in state['calls']), 1)
+                patch.stopall()
+
+    def test_missing_or_malformed_process_evidence_is_unverified(self):
+        for field in ('title', 'command_line'):
+            for value in ('', None, {}, 123):
+                with self.subTest(field=field, value=value), Fixture() as f:
+                    m, paths, request, _, state = self.fixture(f)
+                    state[field] = value
+                    code, output = m.launch(request, paths, f.runner)
+                    self.assertEqual((code, output['status']), (3, 'created_unverified'))
+                    patch.stopall()
+
+    def test_observation_preserves_literal_argument_values(self):
+        with Fixture() as f:
+            m, paths, request, _, state = self.fixture(f)
+            request = replace(request, cwd=f.home/'space \" quote\nКириллица',
+                              handoff=f.home/"handoff ' $(literal)")
+            state['title'] = '/package path/vendor/codex'
+            state['command_line'] = state['title']+' --no-daemon -C '+str(request.cwd)+' Read the handoff file at '+str(request.handoff)+' and carry out the task described there.'
+            code, output = m.launch(request, paths, f.runner)
+            self.assertEqual((code, output['status']), (0, 'launched'))
+            self.assertNotIn(state['command_line'], json.dumps(output))
+
+    def test_delayed_helpers_guard_refusal_and_actual_tui(self):
+        # Pipes hold each real fake invocation at an exact phase; no timing is launch evidence.
+        chains = ('direct', 'passthrough', 'simple', 'dispatcher', 'restore',
+                  'restore-passthrough', 'restore-simple', 'restore-dispatcher')
+        for chain in chains:
+            for phase in ('version-refused', 'tui', *(['help'] if chain.startswith('restore') else [])):
+                with self.subTest(chain=chain, phase=phase), Fixture() as f:
+                    m, paths, request, inspection, state = self.fixture(f)
+                    fake = '''import json, os, sys
+if os.environ.get('LAUNCH_TEST_OBSERVE'):
+    os.write(int(os.environ['LAUNCH_TEST_OBSERVE']), (json.dumps(sys.argv)+'\\n').encode())
+    os.read(int(os.environ['LAUNCH_TEST_GATE']), 1)
+if sys.argv[1:] == ['--version']:
+    print('codex-cli 0.166.0')
+elif sys.argv[1:] == ['--help']:
+    print('--no-daemon')
+else:
+    open(os.environ['HOME']+'/tui-ran', 'w').write('yes')
+'''
+                    (f.bin/'codex').write_text('#!'+sys.executable+'\n'+fake)
+                    startup = 'export PATH='+shlex.quote(str(f.bin))+':/usr/bin:/bin\n'
+                    if 'passthrough' in chain:
+                        startup += 'function codex { command codex "$@" }\n'
+                    if 'simple' in chain:
+                        startup += 'function codex { command codex --no-daemon "$@" }\n'
+                    if 'dispatcher' in chain:
+                        startup += 'source '+shlex.quote(str(paths.repo/'runtime/codex.zsh'))+'\n'
+                    if chain.startswith('restore'):
+                        startup += 'source '+shlex.quote(str(paths.repo/'runtime/codex_restore/codex-resume.zsh'))+'\n'
+                    (f.home/'.zshrc').write_text(startup)
+                    env = dict(HOME=str(f.home), ZDOTDIR=str(f.home), PATH=str(f.bin)+':/usr/bin:/bin',
+                               CODEX_RESTORE_NO_AUTO='1', ITERM2_UTILS_CODEX_NO_DAEMON='1')
+                    raw = subprocess.run(['/bin/zsh', '-ilc', _metadata_command(paths)], env=env,
+                                         capture_output=True, text=True, timeout=3, cwd=f.home)
+                    self.assertEqual(raw.returncode, 0, raw.stderr)
+                    identity = _identity(json.loads(raw.stdout)['iterm2_launch_identity'])
+                    if phase == 'version-refused':
+                        identity = replace(identity, home=f.home/'different')
+                    inspection = replace(inspection, zsh=Path('/bin/zsh'), identity=identity)
+                    m.inspect_launch.return_value = (inspection, [])
+                    observe_read, observe_write = os.pipe()
+                    gate_read, gate_write = os.pipe()
+                    env.update(LAUNCH_TEST_OBSERVE=str(observe_write), LAUNCH_TEST_GATE=str(gate_read))
+                    process = subprocess.Popen(shlex.split(m.build_command(request, inspection, paths)),
+                        env=env, cwd=f.home, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(observe_write, gate_read))
+                    os.close(observe_write)
+                    os.close(gate_read)
+                    try:
+                        stages = ['--version']
+                        if phase != 'version-refused' and chain.startswith('restore'):
+                            stages.append('--help')
+                        if phase == 'tui':
+                            stages.append('tui')
+                        for index, stage in enumerate(stages):
+                            self.assertTrue(select.select([observe_read], [], [], 4)[0], 'fake invocation timed out')
+                            argv = json.loads(os.read(observe_read, 16384))
+                            if stage == 'tui':
+                                count = 2 if chain == 'restore-simple' else int(chain not in ('direct', 'passthrough'))
+                                self.assertEqual(argv[1:-3], ['--no-daemon']*count)
+                            else:
+                                self.assertEqual(argv[1:], [stage])
+                            if index == len(stages)-1:
+                                state.update(title=argv[0], command_line=' '.join(argv))
+                                code, output = m.launch(request, paths, f.runner)
+                                wanted = (0, 'launched') if phase == 'tui' else (3, 'created_unverified')
+                                self.assertEqual((code, output['status']), wanted)
+                                self.assertEqual(sum(a[1:3] == ['tab', 'new'] for a in state['calls']), 1)
+                            os.write(gate_write, b'x')
+                        if phase == 'version-refused':
+                            self.assertEqual(process.wait(timeout=4), 0)
+                            self.assertFalse((f.home/'tui-ran').exists())
+                        elif phase == 'tui':
+                            self.assertEqual(process.wait(timeout=4), 0)
+                            self.assertTrue((f.home/'tui-ran').exists())
+                    finally:
+                        if process.poll() is None:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=4)
+                        os.close(observe_read)
+                        os.close(gate_write)
+                    patch.stopall()
 
     def test_wrong_profile_is_not_launched(self):
         for field in ('applied', 'guid'):

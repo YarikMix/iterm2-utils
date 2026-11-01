@@ -149,8 +149,9 @@ Raw profile key `Keyboard Map` подтверждён
 `session.jobName` — display foreground process, предпочтительно глубочайший job
 с stdin/stdout на session tty; не всегда самый глубокий дочерний процесс.
 Fallback возможен при неизвестном tty/remote session; имеется iTermServer exec
-window workaround. `codex` здесь может подтвердить наблюдаемый job, но не чтение
-handoff/принятие задачи и не работу clipboard.
+window workaround. `codex` здесь подтверждает только имя наблюдаемого job: это может быть
+`--version`/`--help`. Само по себе имя не подтверждает интерактивный запуск,
+чтение handoff/принятие задачи или работу clipboard.
 
 ## Первичный блокер: разрешён отдельным ruling перед Task 2/3
 
@@ -206,3 +207,37 @@ Task 3 обязан установить cwd **до** login startup и испо�
 неразличимым. Неподтверждённые ключи обнаружения внешнего источника в код не
 добавлены; контроллер принял этот bounded reader для первой версии. Конкурентное
 изменение профиля после проверки не покрывается атомарной гарантией.
+
+
+## Final fix I1/M1: отличить helpers от целевого запуска
+
+Дополнительно прочитаны публичные исходники того же pinned iTerm2 commit:
+
+- [`PTYSession.m:7933–7945`](https://github.com/gnachman/iTerm2/blob/7ce456b98db38d3f0bafd70ffec87752e69d5d58/sources/PTYSession/PTYSession.m#L7933):
+  `processTitle` берётся из displayInfo.argv0 (fallback — name), `commandLine`
+  из того же displayInfo.commandLine, рядом с jobName.
+- [`iTermProcessInfo.swift:370–374`](https://github.com/gnachman/iTerm2/blob/7ce456b98db38d3f0bafd70ffec87752e69d5d58/sources/ProcessInfo/iTermProcessInfo.swift#L370):
+  commandLine = argv.joined(separator: " "), argv0 — первый непустой аргумент.
+  Это строка без shell escaping, не сериализованный argv для shlex.split.
+- [`iTermVariables.m:69–72`](https://github.com/gnachman/iTerm2/blob/7ce456b98db38d3f0bafd70ffec87752e69d5d58/sources/Language/iTermVariables.m#L69):
+  имена полей processTitle и commandLine.
+
+`launched` требует прежних session/window/profile проверок, jobName=codex и
+полного равенства commandLine ожидаемой строке: processTitle, допустимые флаги,
+`-C`, точный cwd, точное поручение с handoff. Исходные аргументы команды и
+ожидаемое наблюдение строятся одним `_codex_arguments`.
+Допустимы 0/1/2 начальных `--no-daemon`: direct/passthrough не добавляют флаг;
+dispatcher добавляет максимум один; restore добавляет один при поддержке help;
+restore поверх simple wrapper может дать два. Основание — проверяемые в preflight
+canonical bodies `runtime/codex.zsh` и `runtime/codex_restore/codex-resume.zsh`,
+а не произвольное разрешение аргументов. Runtime не менялся.
+
+Сравнение строк не восстанавливает границы argv и не является новым security
+parser. Для проверенных цепочек оно отделяет целевой вызов от `--version`,
+`--help` и app-server. Пустые, неверно типизированные и несовпадающие наблюдения
+оставляют created_unverified. iTerm использует кэш; это свидетельство наблюдавшегося
+вызова, не гарантия, что процесс жив в момент ответа. Ack остаётся отдельным.
+
+M1: provenance содержимого внешних restore helpers проверяется в `_check_wrapper`
+на preflight. Guard повторяет root identity и fingerprint функций, а не hashes
+внешнего runtime. Новая повторная hash-проверка не добавлена.

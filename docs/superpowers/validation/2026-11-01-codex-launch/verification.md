@@ -83,3 +83,37 @@ Live launch/ack/clipboard ABC+RU и соседняя сессия: **live-unveri
 Изолированный Mac account/VM не предоставлен. Реальные настройки/HOME, auth,
 GUI, разрешения и рабочие сессии разработчика для приёмки не использовались.
 Структурный validator и fixture transport не заменяют живую проверку.
+
+## Final-review fix wave (после bf7c55f)
+
+Предыдущие 467 PASS и shell результаты выше относятся к Task 6. После I1/M1
+выполнены только затронутые проверки; полный набор не повторялся.
+
+- RED: `python3 -m unittest tests.test_launch.LaunchTests.test_helper_or_incomplete_command_line_is_not_launched -v`
+  — 1 test, 6 expected failures: helper/missing/wrong command observations давали launched.
+- RED с задержанными fake processes: `python3 -m unittest tests.test_launch.LaunchTests.test_delayed_helpers_guard_refusal_and_actual_tui -v`
+  — 1 test, 10 expected failures (7 version-before-guard-refusal + 3 restore help);
+  7 целевых запусков в той же матрице уже проходили. Полный лог: `final-fix-red.log`
+  в plan scratch directory. Ранний вариант test harness с Unix socket был недоступен
+  в sandbox (`Operation not permitted`); заменён обычными pipes, это не RED продукта.
+- GREEN: `python3 -m unittest tests.test_launch tests.test_launch_checks tests.test_cli tests.test_export -v`
+  — **57 tests, 20.183 s, OK**; полный лог `final-fix-tests.log`.
+- После усиления проверки точного числа `--no-daemon` и добавления restore→passthrough
+  повторён только тест задержанных процессов: **1 test, OK**, 20 фаз в 8 chains.
+  Полный лог `final-fix-chains.log`.
+- `python3 tools/check_skill.py` — **2 skills structurally valid (not a behavioral evaluation)**.
+- `python3 tools/check_export.py` — **109 allowlisted files verified; provenance/licenses/private-reference checks passed**.
+- `git diff --check` — exit 0, без вывода.
+
+Pipes останавливают синтетический codex на точном argv, а fake-it2 воспроизводит
+pinned iTerm processTitle/commandLine; это не запуск настоящего Codex/iTerm2.
+Guard rejection не выполняет TUI, задержанные version/help остаются unverified;
+целевой вызов подтверждается без ack. Покрыты direct, passthrough, simple,
+dispatcher и каждый из четырёх под restore; 0/1/2 no-daemon, malformed/missing
+observations, пути с пробелами/кавычками/кириллицей/newline и отсутствие повторной
+мутации. Archive smoke обновлён под новый контракт и пройден.
+
+Изменений vendored runtime нет; provenance не изменялся. Behavioral BLOCKED и
+live-unverified сохраняются. Реальные настройки, GUI, auth и model API не
+использовались. Обновление установленного skill после этого коммита выполняет
+контроллер штатным bootstrap и проверяет hashes отдельно от этих fixtures.

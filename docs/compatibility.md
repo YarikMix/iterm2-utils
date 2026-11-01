@@ -50,8 +50,9 @@ Supported shell identities are direct binary, exact bundled dispatcher/restore
 bodies and their chains, simple passthrough and a wrapper adding only
 `--no-daemon`. Unknown/profile-changing wrappers and aliases block launch. The
 identity guard rechecks executable/version, HOME/CODEX_HOME/ZDOTDIR, relevant
-functions, restore runtime and selected Python before the actual `codex -C` call;
-it does not add model/API/config overrides or `--no-alt-screen`.
+functions, restore root identity and selected Python before the actual `codex -C` call;
+restore helper content provenance is checked during preflight only. The guard
+does not add model/API/config overrides or `--no-alt-screen`.
 
 The profile reader requires one live name/GUID and a matching materialized
 `New Bookmarks` entry with explicit Keyboard Map and global `CopySelection=false`.
@@ -59,8 +60,15 @@ Its preference snapshot is not a direct runtime-binding read: a stale external
 plist with the same name/GUID may be indistinguishable; concurrent profile
 changes after preflight are not atomic. Config contents can likewise change
 between inspection and launch; the identity guard is not a lock over settings.
-`session.jobName=codex` establishes an observed job only. A fresh matching ack
-is separately required for receipt; neither observation proves Cmd+C → Cmd+V.
+`session.jobName=codex` alone can describe a helper. Launch success additionally
+requires `session.processTitle` (argv0) and `session.commandLine` to match the
+complete expected invocation: argv0, up to two `--no-daemon` flags contributed
+by supported wrappers, `-C`, cwd and the exact handoff prompt. iTerm joins argv
+with spaces without escaping; comparison uses that representation, not shell
+parsing. Missing/malformed/mismatching evidence remains `created_unverified`.
+These are cached process observations, not proof that the process still lives
+at response time or has accepted the task. A fresh matching ack is separately
+required for receipt; neither observation proves Cmd+C → Cmd+V.
 
 Still required in an isolated Mac account/VM: launch from another agent, inspect
 the profile before interaction, exactly one Codex, fresh request/cwd/thread ack,

@@ -68,3 +68,22 @@ progress; preserve IDs/artifacts and no retry; no Codex overrides/permission
 bypass; blocked prerequisites use setup; other agent types excluded. Receipt,
 launch and clipboard evidence are distinguished. Self-review clarified actual
 receiver cwd checking and profile GUID rechecking before final structural PASS.
+
+## Final-review fix: observation instructions
+
+The Task4 hashes above remain historical evidence. The final I1 fix extends
+step 6: require the expected processTitle/commandLine, not jobName alone, and
+never treat helper commands or elapsed time as launch success. Current hashes:
+
+```text
+803ecd6d3bb0c41aaa13353d05fee27e277de38dcb04de52bc908414b27d699e  skills/iterm2-launch/SKILL.md
+00bb558c11bd34b475ef3ac398c0a47b0ee5d0e0c60834ab3d53ebf1ab3270cd  skills/iterm2-launch/references/handoff.md
+```
+
+`python3 tools/check_skill.py`: exit 0,
+`2 skills structurally valid (not a behavioral evaluation).`
+Archive bootstrap exercised both bundles in the scoped 57-test GREEN run;
+this verifies distribution bytes, not model behavior. Behavioral evaluation
+remains **BLOCKED**, live acknowledgment/clipboard remains **unverified**.
+The controller owns the subsequent supported bootstrap refresh of the installed
+bundle and its receipt/hash verification; this source report does not claim it.

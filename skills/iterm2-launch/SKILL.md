@@ -43,6 +43,14 @@ An internal-subagent or Claude Code request does not authorize a Codex tab.
    one session in the requested window. Recheck `profile show` name/GUID;
    confirm the profile/Codex via `session get-var session.profileName --session SESSION_ID` and
    `session get-var session.jobName --session SESSION_ID` (JSON-encoded strings).
+   Job name alone is insufficient: `codex --version`/`--help` are helpers. For
+   launch evidence also read `session.processTitle` and `session.commandLine`
+   with the same scoped `get-var`. Require commandLine to equal processTitle,
+   zero to two `--no-daemon` flags from supported wrappers, `-C`, the exact cwd,
+   and `Read the handoff file at ABS_FILE and carry out the task described there.`
+   joined by spaces without shell quoting (iTerm's representation). Do not echo
+   the raw command line. Missing/malformed/mismatching evidence is unverified;
+   do not upgrade status based on job name or elapsed time.
    For unknown identity, inspect known IDs/inventory; never guess by recency.
    Apply the receipt checks and bounded wait in the reference.
 

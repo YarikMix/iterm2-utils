@@ -28,10 +28,14 @@ class LaunchITerm(ITerm):
         return value
 
 
-def build_command(request: LaunchRequest, inspection: LaunchInspection, paths: Paths) -> str:
+def _codex_arguments(request: LaunchRequest) -> list[str]:
     prompt = 'Read the handoff file at '+str(request.handoff)+' and carry out the task described there.'
+    return ['-C', str(request.cwd), prompt]
+
+
+def build_command(request: LaunchRequest, inspection: LaunchInspection, paths: Paths) -> str:
     script = (identity_guard(paths, inspection.identity)+' && '+
-              shlex.join(['codex', '-C', str(request.cwd), prompt])+'\n'+
+              shlex.join(['codex', *_codex_arguments(request)])+'\n'+
               # Keep the tab available even when its profile closes exited commands.
               shlex.join(['exec', str(inspection.zsh), '-i']))
     wrapper = ('export CODEX_RESTORE_NO_AUTO=1; cd -- '+shlex.quote(str(request.cwd))+' && '+
@@ -78,7 +82,12 @@ def launch(request: LaunchRequest, paths: Paths, runner: Runner) -> tuple[int, d
                     profile = transport.profile(request.profile)
                     applied = transport.variable(pane.terminal, 'session.profileName')
                     job = transport.variable(pane.terminal, 'session.jobName')
-                    if (profile.get('guid') == inspection.profile_guid and
+                    title = transport.variable(pane.terminal, 'session.processTitle')
+                    command_line = transport.variable(pane.terminal, 'session.commandLine')
+                    # iTerm joins argv without escaping; restore + simple wrapper can each add --no-daemon.
+                    commands = [' '.join([title, *prefix, *_codex_arguments(request)])
+                                for prefix in ([], ['--no-daemon'], ['--no-daemon', '--no-daemon'])]
+                    if (title and command_line in commands and profile.get('guid') == inspection.profile_guid and
                             profile.get('name') == request.profile and applied == request.profile and job == 'codex'):
                         output['status'] = 'launched'
                         return 0, output

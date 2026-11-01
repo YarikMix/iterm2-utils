@@ -43,8 +43,10 @@ with Fixture() as f:
     elif command == "profile-show":
         print(json.dumps(dict(name="Codex fixture", guid="profile-one", command="codex OTHER")))
     elif command == "session-get-var":
-        print(json.dumps("Codex fixture" if sys.argv[3] == "session.profileName" else "codex"))
-''')
+        values = {"session.profileName": "Codex fixture", "session.jobName": "codex",
+                  "session.processTitle": "codex", "session.commandLine": COMMAND_LINE}
+        print(json.dumps(values[sys.argv[3]]))
+'''.replace('COMMAND_LINE', repr('codex -C '+str(f.home)+' Read the handoff file at '+str(handoff)+' and carry out the task described there.')))
     identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.166.0',
         home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
         functions={}, alias='', restore_root='', python=''))
