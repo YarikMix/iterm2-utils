@@ -209,7 +209,11 @@ has recorded source hashes but no public commit identity; the public base and
 adaptation are disclosed in notices. No code or settings must be fetched from
 that source installation at runtime.
 
-## Repository appearance — local verification, 2026-11-01
+## Repository appearance — historical verification before cd support, 2026-11-01
+
+The following results describe the earlier startup/Codex-only behavior. They are
+retained as historical evidence; in particular, “cd preserved style” below is
+superseded by the current cd/reset contract and is not its acceptance evidence.
 
 Fixture checks and separately authorized native checks are recorded below;
 this is not a new CI execution claim.
@@ -250,3 +254,50 @@ rules, paths, receipts and screenshots are excluded from the public package.
 The final post-install check passed five startup and four APS scenarios. Native
 API failures and profile changes later than the bounded observer remain limits;
 connectivity alone does not establish rendering or APS behavior.
+
+## Repository appearance cd/reset — fixture verification, 2026-11-01
+
+Current behavior extends the existing selected appearance feature: startup and
+ordinary cd apply the most specific available physical root; outside all rules
+disables base/light/dark Tab Color and hides the custom icon without writing a
+default RGB. The native zsh chpwd hook belongs to its interactive shell, registers
+once and preserves foreign hooks. No new flag/schema, daemon or polling is added.
+The historical native results above do not verify this new behavior.
+
+| Fixture command / scope | Actual evidence |
+| --- | --- |
+| `python3 -m unittest tests.test_appearance_runtime tests.test_appearance_rules -v` | 75 tests, PASS, one case-sensitive-filesystem skip; fake API reset/assignment, light/dark, launch/return and stale native-record ownership |
+| `/bin/zsh tests/test_appearance_shell.zsh` | 22 tests, PASS (15.169s); physical cwd, single registration, foreign hooks, owner PID, ALLEXPORT/nested/noninteractive isolation, parent completion before child target, quiet API deadlines/cd0, worker cleanup and rapid ordering |
+| `/bin/zsh tests/test_codex_shell.zsh` | PASS: `Codex dispatcher tests passed`; no separate count emitted |
+| `/bin/zsh tests/restore/test_codex.zsh` | 37 tests, PASS: `pass=37 fail=0`; real fixture cd still reaches native dispatcher/restore |
+| `python3 -m unittest tests.test_payload tests.test_appearance_feature tests.test_shell tests.test_export -v` | 48 tests, PASS; installed builtin/custom icon selection and outside reset after source JSON/PNG/checkout deletion; installed zsh source still emits shell-phase physical startup → project → outside events through a fake executable boundary |
+| Strengthened existing partial-uninstall regression | 1 test, PASS after adding foreign shell text/function preservation; appearance source removed from generated startup, other runtime consumers retained |
+| Delivery regressions against the copied pre-change snapshot | 2 tests, 2 expected failures: no outside reset and no cd hook event. Current focused run above passes both; the working tree was not reverted |
+
+All development runs use temporary HOME and fake API/executable adapters, with no
+real settings, SDK authorization, GUI or model invocation. After the final source
+freeze, `python3 -m unittest discover -v` passed 577 tests (576 OK, one
+case-sensitive-filesystem skip) in 116.194s. The same gate passed shell22,
+restore37, dispatcher, 27 pinned sources, two structural skills, export131,
+131 unique regular archive entries with 131 byte comparisons, checksum and
+whitespace checks. Structural skill validation does not evaluate agent behavior;
+no new CI run is claimed. Startup and each cd now wait for helper completion,
+usually one short API roundtrip; unavailable API/filesystem can delay each event
+roughly the existing 2.8s budget while successful cd remains exit0.
+
+| New live acceptance case | Status |
+| --- | --- |
+| Fresh outside startup and ordinary cd through five selected roots, subdirectory and outside | PASS on iTerm2 3.7.6/Python 3.13.7: exact color/icon for all five; outside has base/light/dark use-color=false, Icon=0 and empty path |
+| Subprocess cd and own neighboring control session | PASS: subprocess kept parent appearance; neighboring control unchanged |
+| Rapid A → B → outside with no late recoloring | PASS, including a delayed final-state check |
+| Auto-exiting native Codex under real APS in a project and after outside cd | PASS with a local native executable named codex; no model/network prompt. Project return followed immediately by cd retained the new project after 3.2s; outside return retained default |
+| Normal-size tabbar readability | PASS: exact owned-window crop, five distinct colors and built-in Android/iOS + Mail/Cloud composite icons plus Kotlett visible |
+| Actual light/dark theme switching | Not newly performed; native reset flags for both variants verified, fixture properties covered |
+| Resume/fork/restore picker and disconnected external target | Fixture coverage only; no new live run, do not disconnect a disk in use |
+| Selected appearance-only install, API access and temporary-tab cleanup | PASS: matching dry-run/install preserved selection and reused owned rules; installed runtime bytes matched; no pending steps. All six captured own sessions closed and own window absence verified; working user sessions were not restarted |
+
+Late APS changes beyond the existing bounded observer, tmux and other shells or
+agents remain outside this change. Already running user shells are not updated
+remotely; use a fresh tab or explicitly restart zsh to load the updated hook.
+Uninstall does not reset or restart existing tabs. Raw native evidence, screenshots
+and personal paths remain private and are excluded from the release.

@@ -61,10 +61,23 @@ class AppearanceEntrypointTests(unittest.TestCase):
                 self.assertEqual(appearance.apply(self.config, self.repo, 'launch', environment=ENV, **arguments), 'unavailable')
                 worker.assert_not_called()
 
-    def test_no_match_does_not_connect(self):
+    def test_no_match_shell_requests_default_reset(self):
+        with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
+             patch.object(appearance, '_operate', new=AsyncMock(return_value='applied')) as operation:
+            self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV), 'applied')
+        self.assertEqual(operation.call_args.args[0], {
+            'terminal': UUID, 'phase': 'shell', 'config': str(self.config), 'cwd': '/', 'reset': True})
+
+    def test_no_match_reset_still_requires_session_and_valid_config(self):
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_API') as api:
-            self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV), 'ignored')
+            for env in ({}, {**ENV, 'TMUX': '/fixture/tmux,42,0'}):
+                with self.subTest(env=env):
+                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=env), 'ignored')
+            for contents in ('invalid JSON', '{"projects":[]}'):
+                with self.subTest(contents=contents):
+                    self.config.write_text(contents)
+                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV), 'unavailable')
             api.assert_not_called()
 
     def test_no_match_launch_and_return_reach_preservation_observer(self):
@@ -136,6 +149,7 @@ class FakeAPI:
         self.connect = AsyncMock()
         self.find = AsyncMock(return_value=self.session)
         self.write = AsyncMock()
+        self.reset = AsyncMock(side_effect=self._reset)
         self.close = AsyncMock()
         self.job = 'zsh'
         self.events = asyncio.Queue()
@@ -145,12 +159,27 @@ class FakeAPI:
         self.saved = None
         self.snapshot = AsyncMock(side_effect=lambda session: dict(self.current))
         self.save_snapshot = AsyncMock(side_effect=self._save_snapshot)
+        self.invalidate_snapshot = AsyncMock(side_effect=self._invalidate_snapshot)
         self.take_snapshot = AsyncMock(side_effect=self._take_snapshot)
         self.clear_snapshot = AsyncMock(side_effect=self._clear_snapshot)
         self.restore = AsyncMock(side_effect=self._restore)
+        self.write_if_current = AsyncMock(side_effect=self._write_if_current)
+
+    async def _reset(self, session):
+        self.current.update({'Use Tab Color': False, 'Use Tab Color (Light)': False,
+                             'Use Tab Color (Dark)': False, 'Icon': 0, 'Custom Icon Path': ''})
 
     async def _save_snapshot(self, session, properties, launch_id=None):
         self.saved = (launch_id, None if properties is None else dict(properties))
+
+    async def _invalidate_snapshot(self, session):
+        self.saved = None
+
+    async def _write_if_current(self, session, color, icon, launch_id=None):
+        if self.saved is None or self.saved[0] != launch_id:
+            return False
+        await self.write(session, color, icon)
+        return True
 
     async def _take_snapshot(self, session, launch_id=None):
         if self.saved is None or self.saved[0] != launch_id:
@@ -193,6 +222,45 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         self.api.write.assert_awaited_once_with(self.api.session, '#65A85A', '/fixture/a.png')
         self.api.close.assert_awaited_once()
 
+    async def test_default_reset_uses_only_explicit_session(self):
+        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        with patch.object(self.api, 'watch') as watch:
+            self.assertEqual(await appearance._operate(request), 'applied')
+        watch.assert_not_called()
+        self.api.find.assert_awaited_once_with(UUID)
+        self.api.reset.assert_awaited_once_with(self.api.session)
+        self.api.write.assert_not_called()
+        self.assertFalse(self.api.watching)
+        self.api.close.assert_awaited_once()
+
+    async def test_default_reset_missing_session_or_invalid_uuid_cannot_write(self):
+        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        self.api.find.return_value = None
+        self.assertEqual(await appearance._operate(request), 'unavailable')
+        self.assertEqual(await appearance._operate({**request, 'terminal': 'active'}), 'unavailable')
+        self.api.reset.assert_not_called()
+        self.api.write.assert_not_called()
+
+    async def test_default_reset_waits_for_native_write_and_reports_errors(self):
+        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        started, released = asyncio.Event(), asyncio.Event()
+        async def delayed(session):
+            started.set()
+            await released.wait()
+        self.api.reset.side_effect = delayed
+        operation = asyncio.create_task(appearance._operate(request))
+        try:
+            await asyncio.sleep(0)
+            self.assertTrue(started.is_set(), 'native reset was not awaited')
+            self.assertFalse(operation.done())
+            released.set()
+            self.assertEqual(await operation, 'applied')
+        finally:
+            operation.cancel()
+            await asyncio.gather(operation, return_exceptions=True)
+        self.api.reset.side_effect = RuntimeError('private API details')
+        self.assertEqual(await appearance._operate(request), 'unavailable')
+
     async def test_probe_never_writes(self):
         self.request['phase'] = 'probe'
         self.assertEqual(await appearance._operate(self.request), 'ready')
@@ -222,6 +290,8 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
     async def run_event_case(self, phase, initial_job, events):
         self.request['phase'] = phase
         self.api.job = initial_job
+        if phase == 'return':
+            self.api.saved = (self.request.get('launch_id'), None)
         async def drive():
             while not self.api.watching:
                 await asyncio.sleep(0)
@@ -276,6 +346,93 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         finally:
             driver.cancel()
             await asyncio.gather(driver, return_exceptions=True)
+
+    async def test_default_survives_no_match_codex_aps_and_return(self):
+        self.assertEqual(await appearance._operate({'terminal': UUID, 'phase': 'shell', 'reset': True}), 'applied')
+        expected = {'Tab Color': {'Red Component': .4}, 'Use Tab Color': False,
+                    'Use Tab Color (Light)': False, 'Use Tab Color (Dark)': False,
+                    'Custom Icon Path': '', 'Icon': 0}
+        self.assertEqual(self.api.current, expected)
+        request = {'terminal': UUID, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
+        async def launch():
+            while self.api.saved is None or self.api.saved[0] != '42-1':
+                await asyncio.sleep(0)
+            self.api.current = {'Use Tab Color': True, 'Use Tab Color (Light)': True,
+                                'Use Tab Color (Dark)': True, 'Icon': 2, 'Custom Icon Path': '/fixture/codex.png'}
+            self.api.job = 'codex'
+            await self.api.events.put(None)
+        driver = asyncio.create_task(launch())
+        try:
+            with patch.object(appearance, '_WATCH_SECONDS', .02):
+                self.assertEqual(await appearance._operate(request), 'applied')
+            await driver
+            self.assertEqual(self.api.current, expected)
+            self.api.current = {'Use Tab Color': True, 'Icon': 2, 'Custom Icon Path': '/fixture/shell.png'}
+            self.api.job = 'zsh'
+            with patch.object(appearance, '_WATCH_SECONDS', .02):
+                self.assertEqual(await appearance._operate({**request, 'phase': 'return'}), 'applied')
+            self.assertEqual(self.api.current, expected)
+            self.assertIsNone(self.api.saved)
+            self.api.reset.assert_awaited_once_with(self.api.session)
+            self.api.write.assert_not_called()
+        finally:
+            driver.cancel()
+            await asyncio.gather(driver, return_exceptions=True)
+
+    async def test_new_shell_target_invalidates_an_old_preserved_return(self):
+        old_properties = dict(self.api.current)
+        for reset in (False, True):
+            with self.subTest(reset=reset):
+                self.api.saved = ('42-1', old_properties)
+                self.api.current = dict(old_properties)
+                expected = {'Use Tab Color': True, 'Custom Icon Path': '/fixture/new-project.png'}
+                shell_request = {**self.request, 'icon': expected['Custom Icon Path']}
+                if reset:
+                    shell_request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+                    expected = {**old_properties, 'Use Tab Color': False, 'Use Tab Color (Light)': False,
+                                'Use Tab Color (Dark)': False, 'Icon': 0, 'Custom Icon Path': ''}
+                async def assign(session, color, icon):
+                    self.api.current = {'Use Tab Color': True, 'Custom Icon Path': icon}
+                self.api.write.side_effect = assign
+                async def take_then_shell(session, launch_id):
+                    properties = await self.api._take_snapshot(session, launch_id)
+                    self.assertEqual(await appearance._operate(shell_request), 'applied')
+                    return properties
+                self.api.take_snapshot.side_effect = take_then_shell
+                request = {'terminal': UUID, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
+                with patch.object(appearance, '_WATCH_SECONDS', .001):
+                    self.assertEqual(await appearance._operate(request), 'ignored')
+                self.assertEqual(self.api.current, expected)
+
+    async def test_new_shell_target_blocks_late_matched_return_assignment(self):
+        for launch_id in ('42-1', None):
+            for reset in (False, True):
+                with self.subTest(launch_id=launch_id, reset=reset):
+                    self.api.saved = (launch_id, None)
+                    old_writes = []
+                    async def assign(session, color, icon):
+                        self.api.current = {'Use Tab Color': True, 'Custom Icon Path': icon}
+                        if icon == '/fixture/old-project.png':
+                            old_writes.append(icon)
+                    self.api.write.side_effect = assign
+                    old_request = {**self.request, 'phase': 'return', 'launch_id': launch_id,
+                                   'icon': '/fixture/old-project.png'}
+                    with patch.object(appearance, '_WATCH_SECONDS', .02):
+                        observer = asyncio.create_task(appearance._operate(old_request))
+                        try:
+                            await asyncio.sleep(0)
+                            self.assertEqual(old_writes, ['/fixture/old-project.png'])
+                            shell = ({'terminal': UUID, 'phase': 'shell', 'reset': True} if reset
+                                     else {**self.request, 'icon': '/fixture/new-project.png'})
+                            self.assertEqual(await appearance._operate(shell), 'applied')
+                            expected = dict(self.api.current)
+                            await self.api.events.put(None)
+                            self.assertEqual(await observer, 'applied')
+                            self.assertEqual(self.api.current, expected)
+                            self.assertEqual(old_writes, ['/fixture/old-project.png'])
+                        finally:
+                            observer.cancel()
+                            await asyncio.gather(observer, return_exceptions=True)
 
     async def test_no_match_without_transition_does_not_reassign_manual_style(self):
         expected = dict(self.api.current)
@@ -377,6 +534,7 @@ class SnapshotSession:
         self.replacement_after_read = None
         self.deferred_replacement = None
         self.in_transaction = False
+        self.writes = []
 
     def replace(self, record):
         if self.in_transaction:
@@ -408,10 +566,31 @@ class SnapshotSession:
         self.record = None if value is None else json.loads(value)
 
     async def async_set_profile_properties(self, profile):
+        self.writes.append((self.in_transaction, profile))
         self.current = profile
 
 
 class NativeAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reset_disables_all_color_variants_and_custom_icon(self):
+        sdk = Mock()
+        sdk.IconMode.NONE = 0
+        sdk.LocalWriteOnlyProfile.return_value = profile = Mock()
+        with patch.dict(sys.modules, {'iterm2': sdk}):
+            api = appearance._API()
+        session = Mock(async_set_profile_properties=AsyncMock())
+        await api.reset(session)
+        native_keys = {'set_use_tab_color': 'Use Tab Color',
+                       'set_use_tab_color_light': 'Use Tab Color (Light)',
+                       'set_use_tab_color_dark': 'Use Tab Color (Dark)',
+                       'set_icon_mode': 'Icon', 'set_custom_icon_path': 'Custom Icon Path'}
+        self.assertEqual({native_keys[call[0]]: call.args[0] for call in profile.mock_calls}, {
+            'Use Tab Color': False, 'Use Tab Color (Light)': False, 'Use Tab Color (Dark)': False,
+            'Icon': 0, 'Custom Icon Path': ''})
+        self.assertEqual(len(profile.mock_calls), 5)
+        sdk.Color.assert_not_called()
+        sdk.LocalWriteOnlyProfile.assert_called_once_with()
+        session.async_set_profile_properties.assert_awaited_once_with(profile)
+
     def snapshot_fixture(self):
         properties = {key: None for key in appearance._APPEARANCE_KEYS}
         record = {'launch_id': '42-1', 'properties': properties}
@@ -447,6 +626,37 @@ class NativeAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.record, newer)
         self.assertEqual(session.current, newer['properties'])
         self.assertFalse(session.in_transaction)
+
+    async def test_matched_write_rejects_a_newer_claim(self):
+        api, session, record, newer = self.snapshot_fixture()
+        session.replace({**newer, 'properties': None})
+        self.assertFalse(await api.write_if_current(session, '#65A85A', '/fixture/old-project.png', '42-1'))
+        self.assertEqual(session.current, record['properties'])
+        self.assertEqual(session.writes, [])
+        self.assertEqual(session.record['launch_id'], '43-1')
+
+    async def test_matched_check_and_assignment_are_atomic_against_a_queued_new_claim(self):
+        api, session, record, newer = self.snapshot_fixture()
+        session.record = {**record, 'properties': None}
+        api.sdk.LocalWriteOnlyProfile = Mock()
+        profile = api.sdk.LocalWriteOnlyProfile.return_value
+        session.replacement_after_read = newer
+        self.assertTrue(await api.write_if_current(session, '#65A85A', '/fixture/old-project.png', '42-1'))
+        self.assertEqual(session.writes, [(True, profile)])
+        self.assertEqual(session.record, newer)
+        self.assertEqual(session.current, newer['properties'])
+        self.assertFalse(session.in_transaction)
+
+    async def test_shell_invalidation_removes_explicit_and_legacy_launch_claims(self):
+        for launch_id in ('42-1', None):
+            with self.subTest(launch_id=launch_id):
+                api, session, record, newer = self.snapshot_fixture()
+                session.record = {'launch_id': launch_id, 'properties': None}
+                await api.invalidate_snapshot(session)
+                self.assertIsNone(session.record)
+                self.assertFalse(await api.write_if_current(session, '#65A85A', '/fixture/old-project.png', launch_id))
+                self.assertEqual(session.writes, [])
+                self.assertEqual(session.current, record['properties'])
 
     async def test_clear_check_and_write_cannot_erase_a_queued_new_launch(self):
         api, session, record, newer = self.snapshot_fixture()
@@ -606,6 +816,10 @@ class Profile:
 LocalWriteOnlyProfile = Profile
 Color = lambda *args: None
 class IconMode: CUSTOM = 2
+class Transaction:
+    def __init__(self, *args): pass
+    async def __aenter__(self): return self
+    async def __aexit__(self, *args): pass
 class VariableScopes: SESSION = 1
 class VariableMonitor:
     def __init__(self, *args): pass
@@ -613,8 +827,9 @@ class VariableMonitor:
     async def __aexit__(self, *args): pass
     async def async_get(self): await asyncio.Future()
 class Session:
-    async def async_get_variable(self, name): return 'zsh'
-    async def async_set_variable(self, name, value): pass
+    snapshot = None
+    async def async_get_variable(self, name): return 'zsh' if name == 'jobName' else self.snapshot
+    async def async_set_variable(self, name, value): self.snapshot = value
     async def async_set_profile_properties(self, profile):
         await asyncio.sleep(.05)
         pathlib.Path(os.environ['APPEARANCE_TEST_WRITE']).touch()

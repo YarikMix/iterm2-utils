@@ -49,8 +49,13 @@ API-ready is not evidence for rendering or APS transitions.
 
 Before opening your own temporary tabs, warn that they will appear. After code
 review and authorized appearance installation, verify shell/Codex start,
-resume/fork/restore, existing APS on entry/exit, ordinary cd, no-match and an
-unavailable target; check icon pairs at normal size in the actual themes. Do not
+resume/fork/restore and existing APS on entry/exit. Ordinary cd into each selected
+root and a subdirectory must apply its exact color/icon; switching roots must
+replace both. Outside all roots, verify base/light/dark use-color=false, Icon=0
+and empty custom icon path without choosing a default RGB. Check rapid A → B →
+outside, no-match launch/return and an unavailable target without disconnecting
+a disk in use or creating missing roots. Check icon pairs at normal size in the
+actual themes and preserve foreign chpwd hooks. Do not
 change neighboring tabs or the Default profile. Close only your own temporary
 tabs and restore only temporary settings you changed. Record actual fixture/live
 results; keep unperformed APS/theme/readability checks pending.

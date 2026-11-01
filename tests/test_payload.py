@@ -131,24 +131,85 @@ class AppearancePayloadTests(test_shell.ShellFixture, unittest.TestCase):
         config = fixture.context.paths.config/'appearance.json'
         source.unlink(); original_png.unlink(); shutil.rmtree(checkout)
         script = """import importlib.util, pathlib, sys
-current, config, project, custom = map(pathlib.Path, sys.argv[1:])
+current, config, project, custom, outside = map(pathlib.Path, sys.argv[1:])
 sys.path.insert(0, str(current))
 import appearance
 rules = appearance.load_rules(config)
 seen = []
 async def worker(request):
+    if pathlib.Path(request['cwd']) == outside:
+        assert request.get('reset') is True, request
+        assert not {'color', 'icon', 'preserve'} & request.keys()
+        seen.append(None)
+        return 'applied'
     icon = pathlib.Path(request['icon'])
     assert icon.is_file() and icon.read_bytes().startswith(bytes([137])+b'PNG')
     seen.append(icon)
     return 'applied'
 appearance._operate = worker
-for cwd in (project, custom):
+for cwd in (project, custom, outside):
     assert appearance._run_request(dict(config=str(config), cwd=str(cwd), phase='shell', terminal='12345678-1234-4234-8234-123456789abc')) == 'applied'
 assert seen[0] == current/'assets/appearance/android-mail.png'
 assert seen[1].parent.name == 'icons'
+assert seen[2] is None
 assert (current/'LICENSE').is_file() and (current/'THIRD_PARTY_NOTICES.md').is_file()
 """
-        result = subprocess.run([sys.executable, '-c', script, str(current), str(config), str(project), str(custom_root)],
+        result = subprocess.run([sys.executable, '-c', script, str(current), str(config), str(project), str(custom_root), str(fixture.context.paths.home)],
                                 cwd=fixture.context.paths.home, env={'PATH':'/usr/bin:/bin', 'PYTHONNOUSERSITE':'1'},
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
+    def test_installed_chpwd_hook_survives_source_removal(self):
+        from tests.test_lifecycle import LifecycleFixture
+        fixture = LifecycleFixture(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        checkout = self.checkout()
+        fixture.context.paths = replace(fixture.context.paths, repo=checkout)
+        fixture.context.capabilities |= {'python:iterm2'}
+        home = fixture.context.paths.home
+        project = home/'project'; project.mkdir()
+        alias = home/'alias'; alias.symlink_to(project, target_is_directory=True)
+        source = home/'source-rules.json'
+        source.write_text(json.dumps({'projects': [dict(root=str(project), color='#123456', icon='ios')]}))
+        fixture.context.appearance_config = source
+        fixture.assertSuccess(fixture.install('appearance'))
+        current = fixture.context.paths.data/'current'
+        config = fixture.context.paths.config/'appearance.json'
+        source.unlink(); shutil.rmtree(checkout)
+        boundary = home/'python-boundary'
+        boundary.write_text(f'#!{sys.executable}\n'+"""import json, os, pathlib, sys
+helper = pathlib.Path(sys.argv[1])
+assert helper.is_file() and helper.name == 'appearance.py'
+arguments = dict(zip(sys.argv[2::2], sys.argv[3::2]))
+assert pathlib.Path(arguments['--config']).is_file()
+with open(os.environ['CALLS'], 'a') as stream:
+    stream.write(json.dumps([str(helper), arguments])+'\\n')
+""")
+        boundary.chmod(0o700)
+        calls = home/'calls.jsonl'
+        script = """function await_calls {
+  local n
+  for n in {1..200}; do
+    [[ -f $CALLS && $(/usr/bin/wc -l < "$CALLS") -ge $1 ]] && return 0
+    /bin/sleep 0.01
+  done
+  return 1
+}
+source "$1/appearance.zsh"
+await_calls 1 || exit 11
+cd "$2" || exit 12
+await_calls 2 || exit 13
+cd "$HOME" || exit 14
+await_calls 3 || exit 15
+"""
+        result = subprocess.run(['/bin/zsh', '-dfi', '-c', script, 'fixture', str(current), str(alias)],
+                                cwd=home, env={'HOME': str(home), 'ZDOTDIR': str(home), 'PATH': '/usr/bin:/bin',
+                                              'TERM_PROGRAM': 'iTerm.app', 'ITERM_SESSION_ID': '12345678-1234-4234-8234-123456789abc',
+                                              'ITERM2_UTILS_PYTHON': str(boundary), 'ITERM2_UTILS_APPEARANCE_CONFIG': str(config),
+                                              'CALLS': str(calls)},
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertEqual(result.stdout+result.stderr, '')
+        records = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertEqual(records, [[str(current.resolve()/'appearance.py'),
+                                   {'--config': str(config), '--cwd': str(cwd.resolve()), '--phase': 'shell'}]
+                                  for cwd in (home, project, home)])

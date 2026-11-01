@@ -9,7 +9,7 @@
 | `mcp` | Separately selected terminal-reading MCP for selected agents | uvx; server Python 3.12+, Python API and human authorization |
 | `shell` | Official zsh command marks/navigation in iTerm2 | zsh and iTerm2 |
 | `shortcuts` | Explicit subset: ctrl-v-ru, alt-enter, ctrl-q, resume | Detected compatible agent version for alt-enter |
-| `appearance` | Repository color/composite icon at interactive shell/Codex start; ordinary cd has no effect | Selected Python 3.11+ with `iterm2` SDK; enabled/authorized Python API |
+| `appearance` | Repository color/composite icon at interactive shell start, ordinary cd and Codex start; outside resets the pair | Selected Python 3.11+ with `iterm2` SDK; enabled/authorized Python API |
 
 First release: macOS + zsh. Most agent integrations require the selected agent
 already installed. Never install a missing second agent implicitly. CLI plan
@@ -111,13 +111,21 @@ Use the ordinary plan/install/doctor/update/uninstall CLI workflow. Read pending
 color/icon rendering. Reconcile alone clears its API checkpoint. No status,
 notifications, MCP, command marks or Claude appearance are enabled implicitly.
 
-The physical calling shell cwd determines shell startup and interactive Codex
-(including resume/fork/restore) appearance; `--cd` and conversation text do not.
-No match, service command or API failure preserves current appearance. Only
-session tab color/use-color and custom icon/mode change; Default/profile/title
-stay intact. A bounded transition observer addresses APS for launch/return;
-there is no daemon/chpwd hook. Actual APS/theme transitions and readability of
-the paired symbols remain live pending. tmux/SSH need separate acceptance.
+The physical calling shell cwd determines startup, ordinary cd and interactive
+Codex (including resume/fork/restore) appearance; `--cd` and conversation text do
+not. Registered roots/subdirectories apply their pair; cd outside all rules
+disables base/light/dark use-color and hides the custom icon (Icon=0, empty path)
+without a default RGB. This updates existing appearance without a flag/schema.
+The native zsh chpwd hook registers once, preserves foreign hooks/function and
+targets only its owning interactive iTerm2 shell. Model subprocesses and
+noninteractive shells cannot recolor the tab. Rapid cd cancels earlier helpers;
+API failure cannot fail a successful cd. Service commands do not apply a pair.
+Only session tab color/use-color and custom icon/mode change; background,
+Default/profile/title stay intact. A bounded observer handles APS for
+launch/return; no daemon, polling or permanent observer is added. New cd/reset,
+APS/theme transitions and readability remain live pending. tmux is unsupported;
+SSH has no new acceptance claim.
 Uninstall removes only unchanged owned appearance resources, keeps shared
 consumers, and does not reset/restart open tabs. Old custom hash copies remain
-owned until uninstall; an empty config object may remain after removal.
+owned until uninstall; an empty config object may remain after removal. New
+generated startup omits appearance source; running shells are not changed remotely.

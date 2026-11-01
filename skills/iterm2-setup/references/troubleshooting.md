@@ -96,8 +96,23 @@ API/TCC automation workaround. A successful probe proves access only. If a
 repository is unavailable, leave it unavailable; do not create a substitute root.
 Visual APS/readability acceptance stays pending until actually checked.
 
+Appearance follows ordinary cd in a fresh interactive iTerm2 zsh after install
+or update: registered roots and subdirectories apply their pair; outside disables
+base/light/dark Tab Color and hides the custom icon without a default RGB. A
+missing external target does not match and must not be created. The once-only
+native chpwd hook preserves foreign hooks; subprocesses, noninteractive shells
+and tmux do not update the tab. Startup and each cd wait for the bounded helper
+assignment/reset and cleanup, so a pending parent write cannot overwrite a fresh
+interactive child's target. Usually brief, this can delay startup/each cd roughly
+2.8 seconds with unavailable API/filesystem; API errors and deadlines still leave
+a successful cd at exit 0. Launch readiness and asynchronous return observation
+remain unchanged. Do not repeatedly
+source startup or restart user sessions to clear a live-verification finding;
+use an owned temporary tab for the checks in ui.md.
+
 For appearance maintenance use `update --dry-run --json`, then `update --json`.
 Selective removal: `uninstall --agent codex --features appearance --dry-run --json`,
 then omit `--dry-run`. Existing tabs can retain their color/icon until closed;
 shared runtime remains for other selected features. Do not reset open tabs or
-remove unowned resources to make diagnostics look clean.
+remove unowned resources to make diagnostics look clean. Generated startup omits
+appearance source after removal; already running shells are not changed remotely.

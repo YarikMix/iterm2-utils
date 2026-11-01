@@ -4,8 +4,12 @@
 
 Added explicit Codex-only `appearance`: repository JSON rules choose a session
 color and one of seven bundled composite PNGs or an owned copy of a custom PNG.
-Applies at interactive shell/Codex start (including resume/fork/restore), not cd;
-no match or unavailable target leaves appearance unchanged. Uses the shared
+Applies at interactive shell start, ordinary cd and Codex start (including
+resume/fork/restore). Leaving registered roots disables base/light/dark Tab Color
+and hides the custom icon without choosing a default RGB. A once-only native zsh
+chpwd hook preserves foreign hooks and targets its owning interactive shell;
+API failures do not fail cd. This updates existing appearance without a new flag
+or JSON schema. Unavailable roots never match or get created. Uses the shared
 installer/dispatcher and selected Python 3.11+ with the official iterm2 SDK.
 Update works without original JSON/PNG; selective uninstall preserves foreign
 changes and other runtime consumers. API authorization stays pending until the
