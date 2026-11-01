@@ -1,11 +1,13 @@
 import contextlib
 import io
 import json
+import shutil
 import unittest
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 from tests.support import Fixture
+from tools import check_skill
 from iterm2_utils import skill_install
 from iterm2_utils.cli import main
 from iterm2_utils.discovery import resolve_paths
@@ -63,8 +65,8 @@ class SkillInstallTests(unittest.TestCase):
             self.assertEqual(code, 0, output)
             target = f.home/'.codex/skills/iterm2-launch'
             self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
-                             ['SKILL.md', 'references/handoff.md'])
-            for name in ('SKILL.md', 'references/handoff.md'):
+                             ['SKILL.md', 'references/handoff.md', 'references/resume.md'])
+            for name in ('SKILL.md', 'references/handoff.md', 'references/resume.md'):
                 self.assertEqual((target/name).read_bytes(),
                                  (context.paths.repo/'skills/iterm2-launch'/name).read_bytes())
                 self.assertEqual((target/name).stat().st_mode & 0o777, 0o644)
@@ -73,6 +75,39 @@ class SkillInstallTests(unittest.TestCase):
             self.assertTrue((context.paths.data/'bootstrap-skill-iterm2-launch/receipt.json').is_file())
             self.assertFalse((context.paths.data/'bootstrap-skill').exists())
             self.assertFalse((context.paths.data/'receipt.json').exists())
+
+    def test_launch_update_copies_resume_reference_preserving_foreign_changes(self):
+        # A legacy receipt must own updates without adopting a foreign new file.
+        reference = Path(__file__).resolve().parents[1]/'skills/iterm2-launch/references/resume.md'
+        self.assertTrue(reference.is_file(), 'resume reference missing from public bundle')
+        for foreign in (False, True):
+            with self.subTest(foreign=foreign), Fixture() as f:
+                context = self.context()
+                agents = frozenset({'codex'})
+                legacy = ('SKILL.md', 'references/handoff.md')
+                with patch.dict(skill_install.BUNDLES, {'iterm2-launch': legacy}):
+                    findings = skill_install.install(context, agents, f.runner, skill='iterm2-launch')
+                self.assertFalse(any(x.state == 'conflict' for x in findings), findings)
+                target = context.paths.codex_home/'skills/iterm2-launch/references/resume.md'
+                self.assertFalse(target.exists())
+                if foreign:
+                    target.write_text('user resume notes\n')
+                before = f.snapshot()
+                findings = skill_install.install(context, agents, f.runner, skill='iterm2-launch')
+                if foreign:
+                    self.assertTrue(any(x.state == 'conflict' for x in findings), findings)
+                    self.assertEqual(f.snapshot(), before)
+                    self.assertEqual(target.read_text(), 'user resume notes\n')
+                else:
+                    self.assertFalse(any(x.state == 'conflict' for x in findings), findings)
+                    self.assertTrue(target.is_file(), 'owned update did not copy resume reference')
+                    self.assertEqual(target.read_bytes(), reference.read_bytes())
+                    receipt = context.paths.data/'bootstrap-skill-iterm2-launch/receipt.json'
+                    resources = json.loads(receipt.read_text())['resources']
+                    self.assertTrue(any(r['target'] == str(target.resolve()) for r in resources))
+                    stamp = target.stat().st_mtime_ns
+                    skill_install.install(context, agents, f.runner, skill='iterm2-launch')
+                    self.assertEqual(target.stat().st_mtime_ns, stamp)
 
     def test_both_skill_receipts_coexist(self):
         for order in (('iterm2-setup', 'iterm2-launch'), ('iterm2-launch', 'iterm2-setup')):
@@ -134,6 +169,7 @@ class SkillInstallTests(unittest.TestCase):
                         if case == 'reference_symlink':
                             reference.symlink_to(foreign/'handoff.md')
                         elif case == 'reference_directory_symlink':
+                            (reference.parent/'resume.md').unlink()
                             reference.parent.rmdir()
                             reference.parent.symlink_to(foreign, target_is_directory=True)
                         else:
@@ -236,7 +272,7 @@ class SkillInstallTests(unittest.TestCase):
     def test_owned_source_update_copies_all_references(self):
         for skill, files, reference in (
                 ('iterm2-setup', skill_install.FILES, 'references/features.md'),
-                ('iterm2-launch', ('SKILL.md', 'references/handoff.md'), 'references/handoff.md')):
+                ('iterm2-launch', ('SKILL.md', 'references/handoff.md', 'references/resume.md'), 'references/handoff.md')):
             with self.subTest(skill=skill), Fixture() as f:
                 context = self.context()
                 bundle = f.home/'source/skills'/skill
@@ -253,6 +289,15 @@ class SkillInstallTests(unittest.TestCase):
                 target = context.paths.codex_home/'skills'/skill
                 self.assertEqual((target/reference).read_text(), 'updated reference\n')
                 self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()), sorted(files))
+
+    def test_launch_structural_examples_reject_bare_codex_as_resume(self):
+        with Fixture() as f:
+            root = f.home/'iterm2-launch'
+            shutil.copytree(resolve_paths().repo/'skills/iterm2-launch', root)
+            self.assertEqual(check_skill.check(root), [])
+            reference = root/'references/resume.md'
+            reference.write_text(reference.read_text().replace('"matches": false', '"matches": true'))
+            self.assertIn('Invalid launch command examples', check_skill.check(root))
 
     def test_corrupt_bootstrap_receipt_blocks_copy(self):
         for skill, receipt in (('iterm2-setup', 'bootstrap-skill'),

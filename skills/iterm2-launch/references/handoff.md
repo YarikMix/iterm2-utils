@@ -1,5 +1,7 @@
 # Handoff and acknowledgement
 
+Only for a new task (`--handoff`); resume sends no new prompt and needs no ack.
+
 ## Prepare before launch
 
 Generate one UUID with the platform UUID library per launch. Use a securely

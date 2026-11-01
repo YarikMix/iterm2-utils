@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Small stdlib structural validator. This does not assess agent behavior."""
+import json
 import re
 import sys
 from pathlib import Path
@@ -44,6 +45,24 @@ def check(root):
     for file in (root/'references').glob('*.md'):
         if file.resolve() not in referenced:
             errors.append('Unlinked reference: '+file.name)
+    if root.name == 'iterm2-launch':
+        # Check documentation examples only; this does not execute or prove a launch.
+        try:
+            content = (root/'references/resume.md').read_text()
+            examples = json.loads(re.search(r'```json\n(.*?)\n```', content, re.S)[1])
+            if not isinstance(examples, list) or len(examples) != 2:
+                raise ValueError()
+            for example in examples:
+                title, argv = example['processTitle'], example['expected_argv']
+                if not isinstance(title, str) or not title or not isinstance(argv, list) or not argv:
+                    raise ValueError()
+                commands = [' '.join([title, *(['--no-daemon']*n), *argv]) for n in range(3)]
+                if type(example['matches']) is not bool or example['matches'] != (example['commandLine'] in commands):
+                    raise ValueError()
+            if {example['matches'] for example in examples} != {True, False}:
+                raise ValueError()
+        except (OSError, ValueError, TypeError, KeyError):
+            errors.append('Invalid launch command examples')
     return errors
 
 

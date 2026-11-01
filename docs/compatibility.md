@@ -5,7 +5,97 @@ Release: **v0.1.0-beta.1**, 2026-10-23. Supported target: macOS + zsh with Pytho
 it does not establish Linux product support. This beta has no stable-production
 acceptance claim.
 
-## Codex launch verification — 2026-11-01
+## Codex API launch and exact resume — 2026-11-01
+
+Current `launch-codex` supports mutually exclusive `--handoff ABS_FILE` and
+`--resume SESSION_UUID`; both require `--window WINDOW_ID --profile PROFILE_NAME
+--cwd ABS_DIR`. Existing handoff calls remain compatible. Resume validates one
+exact interactive transcript under effective `CODEX_HOME/sessions`; it never
+selects last/picker/fork or sends a new task. The skill matches relevant history,
+uses its confirmed cwd unless the user requests another, and reports an already
+open dialog instead of creating a duplicate without an explicit request.
+
+Official `iterm2` SDK must be importable by the Python 3.11+ running the CLI.
+It is loaded lazily for launch only; setup/bootstrap and unrelated commands do
+not require it. No automatic installation, environment search or permission
+changes occur. **Live-tested SDK version: 2.23**, with Python 3.13.7 and Codex 0.166.0
+and iTerm2 3.7.6 on 2026-11-02. Existing profile/config compatibility checks remain in effect.
+
+The SDK addresses an explicit window and creates once via
+`Window.async_create_tab(profile=..., command=...)`. The custom command is
+supplied at creation, overriding a profile's startup command. No terminal input
+or `it2 tab new --command` fallback is used. Connection/preflight operations have
+a 10-second bound; creation plus observations share 30 seconds. Timeout after
+submission is `unknown` or `created_unverified` with any known IDs preserved;
+there is no retry, tab close or process kill.
+
+JSON retains `mode=launch_codex`, IDs, profile, findings and exits 0/2/3; it adds
+`launch_mode=handoff|resume` and `resume_session_id` (dialog UUID for resume,
+otherwise null). `session_id` identifies an iTerm2 terminal, a different namespace.
+`launched`/0 requires exact identity/profile and complete command evidence;
+`blocked`/2 means no creation; `unknown`/3 and `created_unverified`/3 are uncertain.
+`processTitle` is argv0, while `commandLine` is argv0 plus exact mode arguments
+and zero to two supported wrapper `--no-daemon` flags before those arguments.
+The verifier accepts the exact space-joined representation or safely tokenized
+quoted text equal to the same complete argv; it never evaluates that text.
+Malformed quoting, extra arguments, a bare `codex`, help/version, wrong cwd/UUID
+or partial observation fail.
+
+Handoff launch and fresh receipt are separate results, with safe bounded reads
+and a separate 120-second ack wait. Resume has no ack or new prompt. A restored
+history claim requires additional read-only recovered history/identifier in the
+exact target tab. Otherwise report: “команда resume запущена, восстановление
+истории не подтверждено”. No prompt or `/status` is injected for verification.
+
+Fixture/structural checks, offline behavioral simulations and live acceptance
+are distinct. Current behavioral evidence is recorded in
+[skill results](https://github.com/YarikMix/iterm2-utils/blob/main/docs/superpowers/validation/2026-11-01-launch-api-resume/skill-results.md).
+The [final acceptance matrix](https://github.com/YarikMix/iterm2-utils/blob/main/docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md)
+records the 2026-11-02 checks, controller live observations and selected
+installed-skill bootstrap separately. Final tested code/skill snapshot:
+`0ac1a75642010b33b6a3365ecb015ecbf163a5cf`, Darwin 25.6.0 arm64,
+Python 3.13.7 and zsh 5.9. This acceptance update changes documentation only.
+Independent branch review's previous-restore compatibility finding was fixed and
+passed scoped re-review; the later live argv fix also passed scoped review.
+
+| Command / evidence | Actual result |
+| --- | --- |
+| `python3 -m unittest discover -v` at the final code snapshot | 611 tests in 134.552s, OK (skipped=1); 610 passed, one case-insensitive-filesystem skip; baseline 577 → 611 (+34) |
+| `/bin/zsh tests/test_codex_shell.zsh` at the earlier hermetic checkpoint | PASS: dispatcher contracts; no separate count emitted |
+| `/bin/zsh tests/test_appearance_shell.zsh` at that checkpoint | 22 tests, OK |
+| `/bin/zsh tests/restore/test_codex.zsh` at that checkpoint | 37 tests, OK; pass=37 fail=0 |
+| `python3 tools/check_sources.py` at that checkpoint | 27 pinned sources verified |
+| `python3 tools/check_skill.py` after the final documentation update | 2 structurally valid skills; no behavioral evaluation |
+| `python3 tools/check_export.py` after the final documentation update | 134 allowlisted files; provenance/licenses/private-reference checks passed |
+| `git diff --check` after the final documentation update | PASS, no whitespace errors |
+
+The one live handoff invocation returned **created_unverified/3** in 32.25s:
+the observed command line quoted the prompt, exposing the now-fixed verifier
+mismatch. A Codex folder-trust prompt appeared and later disappeared; the
+controller did not confirm it or change trust, and no explicit human action is
+attributed. The first tab was retained without retry. Subsequent continuation,
+ack fields/actual thread/canonical cwd and unique marker were verified safely,
+and exact inventory/profile GUID/job/parsed argv were observed read-only. The ack
+was written **244.62s after launch**, outside the original 120-second receipt
+window. This is later receipt/target evidence, not a timely handoff PASS, a changed
+historical CLI result or a fresh successful handoff run of the final fix.
+
+After clean exit of that own Codex, one exact resume returned **launched/0** in
+**6.4s**; the exact own dialog/cwd and recovered marker/history were verified
+read-only without a new prompt. Both own tabs were then closed by exact IDs;
+final inventory confirmed them absent and the parent session present. Selected
+Codex launch-skill bootstrap dry-run was ready, apply succeeded through CAS, and
+all three installed files plus receipt bytes matched. No user settings, profiles
+or permissions were edited. **Clipboard EN/RU was not checked.**
+
+The recorded 30/30 offline behavioral decisions apply to the sampled `29f5073`
+instruction, not to fresh samples of the later quoted-argv paragraph amendment.
+Its exact code regression coverage and current skill fingerprint are recorded in
+the linked results. Final release build/checksum are in the acceptance matrix;
+no new CI or publication is claimed. The earlier matrix below is a historical
+snapshot of the superseded transport, not current API launch acceptance.
+
+## Earlier Codex launch snapshot — 2026-11-01 (superseded transport)
 
 `launch-codex` supports a new Codex session on macOS + zsh with Python 3.11+.
 It requires an explicit window ID, unique profile name/GUID, absolute cwd and

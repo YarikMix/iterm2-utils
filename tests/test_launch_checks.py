@@ -1,11 +1,15 @@
 """Launch preflight rejects unknown state before any tab creation."""
+import hashlib
 import importlib
 import importlib.util
 import json
 import os
 import plistlib
+import shlex
+import shutil
 import subprocess
 import sys
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +18,15 @@ from unittest.mock import patch
 from iterm2_utils.commands import Runner
 from iterm2_utils.discovery import resolve_paths
 from tests.support import Fixture
+
+RESUME_ID = 'abcdefab-1234-4123-8123-abcdefabcdef'
+
+
+def transcript(path, cwd, **payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = dict(id=RESUME_ID, source='cli', originator='codex-tui', cwd=str(cwd))
+    data.update(payload)
+    path.write_text(json.dumps(dict(type='session_meta', payload=data))+'\nPRIVATE_BODY\n')
 
 
 def profile():
@@ -25,6 +38,116 @@ def profile():
 
 
 class LaunchChecksTests(unittest.TestCase):
+    def test_resume_uses_effective_home(self):
+        with Fixture() as f:
+            m, paths, request, state, bodies = self.setup_launch(f)
+            effective = f.home/'effective-codex'
+            state['identity']['codex_home'] = str(effective)
+            request = replace(request, handoff=None, resume_session_id=RESUME_ID.upper())
+            selected = effective/'sessions/2026/11/01'/('rollout-date-'+RESUME_ID+'.jsonl')
+            transcript(selected, f.home/'original-working-directory')
+            transcript(paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl'), f.home)
+            other = effective/'sessions'/('rollout-11111111-1111-4111-8111-111111111111.jsonl')
+            other.write_text('PRIVATE_UNRELATED_BODY')
+            result, findings = m.inspect_launch(paths, request, f.runner)
+            self.assertEqual(findings, [])
+            self.assertEqual(result.identity.codex_home, effective)
+            opened = []
+            original = os.open
+            def observe(path, flags, *args, **kwargs):
+                opened.append(str(path))
+                return original(path, flags, *args, **kwargs)
+            with patch.object(os, 'open', observe), patch.object(Path, 'open', side_effect=AssertionError('unbounded read')):
+                self.assertTrue(m._resume_lookup(effective, f.home, RESUME_ID))
+            self.assertIn(selected.name, opened)
+            self.assertNotIn(other.name, opened)
+
+    def test_resume_ambiguous_or_unsafe_transcript_blocks(self):
+        for problem in ('unknown', 'duplicate', 'header', 'source', 'originator', 'symlink', 'fifo', 'sessions-link', 'oversized'):
+            with self.subTest(problem=problem), Fixture() as f:
+                m, paths, request, state, bodies = self.setup_launch(f)
+                request = replace(request, handoff=None, resume_session_id=RESUME_ID)
+                selected = paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl')
+                transcript(selected, f.home)
+                if problem == 'unknown': selected.unlink()
+                elif problem == 'duplicate': transcript(selected.parent/'other'/selected.name, f.home)
+                elif problem == 'header': selected.write_text('{}\n')
+                elif problem in {'source', 'originator'}: transcript(selected, f.home, **{problem: 'exec'})
+                elif problem == 'symlink':
+                    outside = f.home/'outside.jsonl'
+                    selected.rename(outside)
+                    selected.symlink_to(outside)
+                elif problem == 'fifo':
+                    selected.unlink()
+                    os.mkfifo(selected)
+                elif problem == 'oversized': selected.write_text(' '*65536+selected.read_text())
+                else:
+                    selected.parent.rename(f.home/'outside-sessions')
+                    selected.parent.symlink_to(f.home/'outside-sessions', target_is_directory=True)
+                started = time.monotonic()
+                with patch('iterm2_utils.launch.LaunchITerm') as transport:
+                    from iterm2_utils.launch import launch
+                    code, output = launch(request, paths, f.runner)
+                self.assertEqual(code, 2, output)
+                self.assertEqual(output['status'], 'blocked')
+                self.assertEqual(output['launch_mode'], 'resume')
+                self.assertEqual(output['resume_session_id'], RESUME_ID)
+                transport.assert_not_called()
+                self.assertLess(time.monotonic()-started, 2)
+
+    def test_resume_lookup_timeout_is_bounded(self):
+        with Fixture() as f:
+            m, paths, request, state, bodies = self.setup_launch(f)
+            request = replace(request, handoff=None, resume_session_id=RESUME_ID)
+            identity = m._identity(state['identity'])
+            run = subprocess.run
+            def stalled(argv, **kwargs):
+                return run([sys.executable, '-c', 'import time; time.sleep(30)'], **kwargs)
+            started = time.monotonic()
+            with patch.object(m, '_RESUME_TIMEOUT', .05), patch.object(m.subprocess, 'run', stalled):
+                with self.assertRaisesRegex(ValueError, '^launch_resume_unverified$'):
+                    m.validate_resume(request, identity)
+            self.assertLess(time.monotonic()-started, 2)
+
+    def test_resume_lookup_rejects_replaced_candidate(self):
+        with Fixture() as f:
+            m, paths, request, state, bodies = self.setup_launch(f)
+            selected = paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl')
+            transcript(selected, f.home)
+            outside = f.home/'outside.jsonl'
+            transcript(outside, f.home)
+            original = os.open
+            def replace_before_open(path, flags, *args, **kwargs):
+                if str(path) == selected.name:
+                    selected.unlink()
+                    selected.symlink_to(outside)
+                return original(path, flags, *args, **kwargs)
+            with patch.object(os, 'open', replace_before_open):
+                self.assertFalse(m._resume_lookup(paths.codex_home, f.home, RESUME_ID))
+
+    def test_transcript_validator_header_preserves_legacy_checks(self):
+        from runtime.codex_restore.codexlib import transcripts
+        with Fixture() as f:
+            home = f.home/'codex'
+            selected = home/'sessions'/('rollout-'+RESUME_ID+'.jsonl')
+            transcript(selected, f.home)
+            header = json.loads(selected.read_text().splitlines()[0])
+            legacy = transcripts.validate(selected, RESUME_ID, home, f.home)
+            self.assertIsNotNone(legacy)
+            with patch.object(Path, 'open', side_effect=AssertionError('must use supplied header')):
+                self.assertEqual(transcripts.validate(selected, RESUME_ID, home, f.home, header=header), legacy)
+                self.assertIsNone(transcripts.validate(f.home/'outside.jsonl', RESUME_ID, home, f.home, header=header))
+                header['payload']['source'] = 'exec'
+                self.assertIsNone(transcripts.validate(selected, RESUME_ID, home, f.home, header=header))
+
+    def test_invalid_direct_launch_modes_and_uuid(self):
+        with Fixture() as f:
+            m, paths, request, state, bodies = self.setup_launch(f)
+            for change in ({'handoff': None}, {'resume_session_id': RESUME_ID},
+                           {'handoff': None, 'resume_session_id': 'invalid'}):
+                with self.subTest(change=change), self.assertRaisesRegex(ValueError, '^launch_'):
+                    m.validate_request(replace(request, **change))
+
     def checks(self):
         self.assertIsNotNone(importlib.util.find_spec('iterm2_utils.launch_checks'),
                              'Launch preflight has not been implemented')
@@ -58,8 +181,6 @@ class LaunchChecksTests(unittest.TestCase):
             if Path(argv[0]).name == 'it2':
                 if args == ['--help']:
                     out = 'window profile tab'
-                elif args == ['tab', 'new', '--help']:
-                    out = '--window --profile --command'
                 elif args == ['window', 'list', '--json']:
                     out = json.dumps(state['windows'])
                 elif args == ['profile', 'list', '--json']:
@@ -73,6 +194,7 @@ class LaunchChecksTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, state['version'], '')
 
         def codex_config(argv, *, timeout, env, cwd, check_identity):
+            self.assertLessEqual(timeout, 10)
             f.runner.calls.append((argv, timeout, None))
             f.runner.environments.append(env)
             self.assertEqual(cwd, request.cwd)
@@ -188,8 +310,8 @@ class LaunchChecksTests(unittest.TestCase):
                 result, findings = m.inspect_launch(paths, request, f.runner)
                 self.assertEqual(result is not None, not tampered)
 
-    def test_platform_dependencies_protocol_and_errors_block(self):
-        for problem in ('platform', 'app', 'zsh', 'codex', 'it2', 'version', 'protocol', 'rpc', 'alias'):
+    def test_platform_dependencies_and_errors_block(self):
+        for problem in ('platform', 'app', 'zsh', 'codex', 'it2', 'version', 'rpc', 'alias'):
             with self.subTest(problem=problem), Fixture(platform='Linux' if problem == 'platform' else 'Darwin') as f:
                 m, paths, request, state, bodies = self.setup_launch(f)
                 if problem == 'app': (f.app/'Contents/Info.plist').unlink()
@@ -201,12 +323,6 @@ class LaunchChecksTests(unittest.TestCase):
                 elif problem == 'rpc':
                     def fail(*a, **k): raise ValueError('SECRET_SENTINEL invalid config')
                     f.runner.codex_config = fail
-                elif problem == 'protocol':
-                    old = f.runner.run
-                    def bad(argv, **kw):
-                        out = old(argv, **kw)
-                        return subprocess.CompletedProcess(argv, 0, 'unknown', '') if argv[-1] == '--help' else out
-                    f.runner.run = bad
                 result, findings = m.inspect_launch(paths, request, f.runner)
                 self.assertIsNone(result)
                 self.assertTrue(findings)
@@ -246,6 +362,54 @@ class LaunchChecksTests(unittest.TestCase):
                         raw['functions']['_codex_restore_previous'] = 'command codex --profile work "$@"'
                         with self.assertRaises(ValueError):
                             m._check_wrapper(raw, reference, paths)
+
+    def test_installed_restore_provenance_for_both_launch_modes(self):
+        for mode in ('handoff', 'resume'):
+            for previous, changed in ((False, None), (True, None),
+                    (False, 'transcripts.py'), (True, 'transcripts.py'),
+                    (False, 'store.py'), (True, 'store.py'), (True, 'transplanted-digest')):
+                with self.subTest(mode=mode, previous=previous, changed=changed), Fixture() as f:
+                    m, paths, request, state, bodies = self.setup_launch(f)
+                    root = f.home/'installed-restore'
+                    shutil.copytree(paths.repo/'runtime/codex_restore', root,
+                                    ignore=shutil.ignore_patterns('__pycache__'))
+                    helper = root/'codexlib/transcripts.py'
+                    if previous:
+                        # Exact e90b332 shipped helper, before the optional pre-read header.
+                        helper.write_text(helper.read_text().replace(', *, header=None)', ')').replace(
+                            '        if header is None:\n'
+                            '            with resolved.open(encoding="utf-8") as stream:\n'
+                            '                header = json.loads(stream.readline())\n',
+                            '        with resolved.open(encoding="utf-8") as stream:\n'
+                            '            header = json.loads(stream.readline())\n'))
+                        self.assertEqual(hashlib.sha256(helper.read_bytes()).hexdigest(),
+                            'e68b9119054a44cfa90897a79887fd7437e64695f449f5fddc6b55e029e59f74')
+                    if changed == 'transplanted-digest':
+                        (root/'codexlib/store.py').write_bytes(helper.read_bytes())
+                    elif changed:
+                        helper = root/'codexlib'/changed
+                        helper.write_bytes(helper.read_bytes()+b'\n# altered helper\n')
+                    env = dict(os.environ, CODEX_RESTORE_NO_AUTO='1')
+                    bodies.update(m._references(paths, Path('/bin/zsh'), Runner(), env))
+                    (f.bin/'codex').write_text('#!/bin/sh\nprintf "codex-cli 0.166.0\\n"\n')
+                    source = 'builtin source '+shlex.quote(str(root/'codex-resume.zsh'))+'\n'
+                    out = Runner().run(['/bin/zsh', '-dfc', source+m._metadata_command(paths)],
+                                       timeout=3, env=env)
+                    self.assertEqual(out.returncode, 0, out.stderr)
+                    state['identity'] = json.loads(out.stdout)['iterm2_launch_identity']
+                    if mode == 'resume':
+                        request = replace(request, handoff=None, resume_session_id=RESUME_ID)
+                        transcript(paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl'), f.home)
+                    before = f.snapshot()
+                    result, findings = m.inspect_launch(paths, request, f.runner)
+                    if changed:
+                        self.assertIsNone(result)
+                        self.assertEqual([x.code for x in findings], ['launch_config_unverified'])
+                    else:
+                        self.assertEqual(findings, [])
+                        self.assertIsNotNone(result)
+                        self.assertEqual(result.identity.restore_root, str(root.resolve()))
+                    self.assertEqual(f.snapshot(), before)
 
     def test_config_errors_and_secret_stderr_are_sanitized(self):
         with Fixture() as f:

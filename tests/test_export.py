@@ -14,7 +14,7 @@ from tools import build_release, check_export
 
 ROOT = Path(__file__).resolve().parents[1]
 
-LAUNCH_SMOKE = r"""import importlib, json, pathlib, sys
+LAUNCH_SMOKE = r"""import importlib, json, os, pathlib, sys
 from unittest.mock import patch
 from iterm2_utils import launch
 from iterm2_utils.discovery import resolve_paths
@@ -34,7 +34,6 @@ with Fixture() as f:
     assert not (paths.data/'receipt.json').exists()
     handoff = f.home/'поручение.md'
     handoff.write_text('PRIVATE_HANDOFF_SENTINEL')
-    request = LaunchRequest('W1', 'Codex fixture', f.home, handoff)
     tools = TerminalTools(f.home)
     sid = '11111111-1111-4111-8111-111111111111'
     tools.set_inventory([dict(id=sid, tab_id='T-new', window_id='W1')],
@@ -44,24 +43,51 @@ with Fixture() as f:
         print(json.dumps(dict(name="Codex fixture", guid="profile-one", command="codex OTHER")))
     elif command == "session-get-var":
         values = {"session.profileName": "Codex fixture", "session.jobName": "codex",
-                  "session.processTitle": "codex", "session.commandLine": COMMAND_LINE}
+                  "session.processTitle": "codex", "session.commandLine": pathlib.Path(COMMAND_FILE).read_text()}
         print(json.dumps(values[sys.argv[3]]))
-'''.replace('COMMAND_LINE', repr('codex -C '+str(f.home)+' Read the handoff file at '+str(handoff)+' and carry out the task described there.')))
+'''.replace('COMMAND_FILE', repr(str(f.home/'command-line'))).replace('pathlib.Path', '__import__("pathlib").Path'))
+    (f.home/'iterm2.py').write_text('''import json, os
+from types import SimpleNamespace
+async def close(): pass
+class Connection:
+    @staticmethod
+    async def async_create(): return SimpleNamespace(websocket=SimpleNamespace(close=close))
+class Profile:
+    @staticmethod
+    async def async_get(connection): return [SimpleNamespace(name="Codex fixture", guid="profile-one")]
+class Window:
+    window_id = "W1"
+    async def async_create_tab(self, **kwargs):
+        with open(os.environ['SDK_LOG'], 'a') as stream:
+            stream.write(json.dumps(kwargs)+'\\n')
+        return SimpleNamespace(tab_id="T-new", all_sessions=[SimpleNamespace(session_id="11111111-1111-4111-8111-111111111111")])
+async def async_get_app(connection):
+    return SimpleNamespace(get_window_by_id=lambda wid: Window() if wid == "W1" else None)
+''')
     identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.166.0',
         home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
         functions={}, alias='', restore_root='', python=''))
     inspection = LaunchInspection(tools.it2, f.bin/'zsh', 'profile-one', identity)
-    # Only preflight is adapted; launch uses the bundled transport and real fake-it2 subprocesses.
-    with patch.object(launch, 'inspect_launch', return_value=(inspection, [])):
-        code, result = launch.launch(request, paths, f.runner)
-    assert (code, result['status']) == (0, 'launched'), result
-    assert (result['window_id'], result['tab_id'], result['session_id']) == ('W1', 'T-new', sid)
-    creates = [row for row in tools.calls() if row[1:3] == ['tab', 'new']]
-    assert len(creates) == 1, creates
-    assert creates[0][3:8] == ['--window', 'W1', '--profile', request.profile, '--command']
-    assert 'CODEX_RESTORE_NO_AUTO=1' in creates[0][8]
-    assert '--no-alt-screen' not in creates[0][8]
-    assert 'PRIVATE_HANDOFF_SENTINEL' not in json.dumps(result)+creates[0][8]
+    for resume in (False, True):
+        request = LaunchRequest('W1', 'Codex fixture', f.home,
+                                None if resume else handoff, sid if resume else None)
+        arguments = ('resume '+sid+' -C '+str(f.home) if resume else
+                     '-C '+str(f.home)+' Read the handoff file at '+str(handoff)+' and carry out the task described there.')
+        (f.home/'command-line').write_text('codex '+arguments)
+        with patch.object(launch, 'inspect_launch', return_value=(inspection, [])), patch.dict(os.environ,
+                PYTHONPATH=str(f.home), SDK_LOG=str(f.home/'sdk-log')):
+            code, result = launch.launch(request, paths, f.runner)
+        assert (code, result['status']) == (0, 'launched'), result
+        assert (result['window_id'], result['tab_id'], result['session_id']) == ('W1', 'T-new', sid)
+        assert result['launch_mode'] == ('resume' if resume else 'handoff')
+        assert result['resume_session_id'] == (sid if resume else None)
+    creates = [json.loads(row) for row in (f.home/'sdk-log').read_text().splitlines()]
+    assert len(creates) == 2, creates
+    assert all(row['profile'] == 'Codex fixture' and row['select'] is True for row in creates)
+    assert all('CODEX_RESTORE_NO_AUTO=1' in row['command'] for row in creates)
+    assert all('--no-alt-screen' not in row['command'] for row in creates)
+    assert 'PRIVATE_HANDOFF_SENTINEL' not in json.dumps(result)+json.dumps(creates)
+    assert [row for row in tools.calls() if row[1:3] == ['tab', 'new']] == []
     assert not (paths.data/'receipt.json').exists()
 """
 
@@ -72,7 +98,8 @@ class ExportTests(unittest.TestCase):
                     'tests/test_native_status_migration.py', 'tests/fixtures/beta1-status.json',
                     'docs/native-status-events.md', 'iterm2_utils/launch.py',
                     'iterm2_utils/launch_checks.py', 'skills/iterm2-launch/SKILL.md',
-                    'skills/iterm2-launch/references/handoff.md', 'tests/test_launch.py',
+                    'skills/iterm2-launch/references/handoff.md',
+                    'skills/iterm2-launch/references/resume.md', 'tests/test_launch.py',
                     'tests/test_launch_checks.py', 'tests/restore/test_iterm.py'}
         self.assertTrue(required <= set(check_export.EXPORT_FILES))
         self.assertEqual(len(check_export.EXPORT_FILES), len(set(check_export.EXPORT_FILES)))

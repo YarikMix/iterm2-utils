@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 from dataclasses import asdict
+from runtime.codex_restore.codexlib.transcripts import normalize_uuid
 from .commands import Runner
 from .discovery import discover, resolve_paths, live_status
 from .models import Selection, Finding, Context
@@ -60,8 +61,11 @@ def main(argv=None):
         elif command == 'reconcile':
             command_parser.add_argument('--step',required=True)
     launch_parser = sub.add_parser('launch-codex', help='Launch one Codex in an explicit iTerm2 tab.')
-    for flag in ('window', 'profile', 'cwd', 'handoff'):
+    for flag in ('window', 'profile', 'cwd'):
         launch_parser.add_argument('--'+flag, required=True)
+    launch_modes = launch_parser.add_mutually_exclusive_group(required=True)
+    launch_modes.add_argument('--handoff')
+    launch_modes.add_argument('--resume', type=normalize_uuid)
     launch_parser.add_argument('--json', action='store_true')
     bootstrap = sub.add_parser('bootstrap-skill', help='Copy one public skill; select no terminal features.')
     bootstrap.add_argument('--skill', choices=['iterm2-setup','iterm2-launch'], default='iterm2-setup')
@@ -90,7 +94,8 @@ def main(argv=None):
     if args.command == 'launch-codex':
         from .launch import launch
         from .launch_checks import LaunchRequest
-        request = LaunchRequest(args.window, args.profile, Path(args.cwd), Path(args.handoff))
+        request = LaunchRequest(args.window, args.profile, Path(args.cwd),
+                                Path(args.handoff) if args.handoff is not None else None, args.resume)
         status, output = launch(request, paths, runner)
     elif args.command == 'bootstrap-skill':
         from . import skill_install

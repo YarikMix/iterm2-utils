@@ -11,7 +11,7 @@ from .models import ChangeSet, Context, FileEdit, Finding, Plan, Selection
 AGENTS = frozenset({'codex', 'claude'})
 OWNER = 'bootstrap-skill'
 FILES = ('SKILL.md', 'references/features.md', 'references/ui.md', 'references/troubleshooting.md')
-BUNDLES = {'iterm2-setup': FILES, 'iterm2-launch': ('SKILL.md', 'references/handoff.md')}
+BUNDLES = {'iterm2-setup': FILES, 'iterm2-launch': ('SKILL.md', 'references/handoff.md', 'references/resume.md')}
 
 
 def _context(context, skill):

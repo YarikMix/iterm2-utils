@@ -51,34 +51,53 @@ python3 -m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex
 
 Без `--skill` bootstrap по-прежнему копирует только `iterm2-setup`. Копии навыков
 и их receipts независимы; bootstrap не включает функции терминала. Для запуска
-нужны macOS, zsh, Python 3.11+, iTerm2 с совместимым bundled `it2` (контракт
+нужны macOS, zsh, Python 3.11+ с официальным модулем `iterm2` именно в этом
+Python, доступный iTerm2 Python API и совместимый bundled `it2` (контракт
 проверен по v3.7.6) и **Codex 0.166.0**. Другие версии Codex блокируются как
 непроверенные. Профиль должен уже существовать с совместимыми Cmd+C/Ctrl+C EN/RU,
 `CopySelection = false`; эффективные TUI-настройки Codex должны сохранять
 alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = never`.
 При блокере используйте `iterm2-setup` с явно выбранными функциями, например
-`clipboard`. Launch ничего не устанавливает; restore и его receipt не требуются.
+`clipboard`. Launch ничего не устанавливает, не ищет чужие Python-окружения и не выдаёт
+разрешения; restore и его receipt не требуются. SDK импортируется лениво только
+для `launch-codex`; setup/bootstrap и остальные команды его не требуют.
+Проверенная живая версия SDK: **2.23** (Python 3.13.7, Codex 0.166.0).
+Фактические результаты handoff/resume и ограничения — в
+[матрице приёмки](docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md).
 
-Из checkout или распакованного релиза:
+Из checkout или распакованного релиза, ровно один режим:
 
 ```sh
 python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
+python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --resume SESSION_UUID --json
 ```
 
-Все четыре значения обязательны. Окно выбирается по явному ID; текущая активная
-вкладка не используется как fallback. `cwd` — существующий абсолютный каталог,
-`handoff` — читаемый обычный файл по абсолютному пути, не symlink. Навык готовит
-уникальные handoff/ack и отдельно проверяет свежее подтверждение принятия задачи
-по [формату handoff](skills/iterm2-launch/references/handoff.md).
+`--window`, `--profile`, `--cwd` обязательны; ровно один из `--handoff` / `--resume`.
+Окно выбирается по явному ID; активная вкладка не используется как fallback.
+`cwd` — существующий абсолютный каталог, `handoff` — читаемый обычный файл по
+абсолютному пути, не symlink. Для нового поручения навык готовит уникальные
+handoff/ack и отдельно проверяет свежее подтверждение по
+[формату handoff](skills/iterm2-launch/references/handoff.md).
 
-Создаётся одна новая сессия с выбранным профилем с самого начала. Команда профиля
-переопределяется; Codex запускается через сохранённую функцию в interactive login
-zsh с `codex -C ...` и поручением прочитать файл. Только дочернему процессу
-передаётся `CODEX_RESTORE_NO_AUTO=1`, чтобы startup restore не запустил второй
-Codex. Launcher не добавляет `--no-alt-screen`, resume, model/API/config overrides
-или отключение защит. Поддерживаются direct binary, точные поставляемые
-dispatcher/restore и их цепочки, простой passthrough и wrapper только с
-`--no-daemon`; неизвестные или меняющие профиль wrappers блокируются.
+Для продолжения нужен точный UUID интерактивного диалога в эффективном
+`CODEX_HOME/sessions`; нет `--last`, picker, fork или нового prompt. Навык
+сопоставляет относящуюся историю, берёт cwd из подтверждённого transcript и
+передаёт другой cwd только по просьбе пользователя. Если нужный диалог уже открыт,
+сообщает его вкладку; дубль — по явной просьбе. См. [resume](skills/iterm2-launch/references/resume.md).
+
+Официальный SDK создаёт одну вкладку через `Window.async_create_tab` с профилем и
+custom command при создании. Команда не вводится в работающий Codex. Через штатную
+функцию в interactive login zsh выполняется `codex -C ABS_DIR <handoff prompt>`
+либо `codex resume SESSION_UUID -C ABS_DIR` без поручения. `CODEX_RESTORE_NO_AUTO=1`
+задаётся до login shell только новому процессу. Настройки/model/endpoint и защиты
+сохраняются; `--no-alt-screen` не добавляется. Поддерживаются direct binary,
+точные поставляемые dispatcher/restore и их цепочки, простой passthrough и wrapper
+только с `--no-daemon`; неизвестные или меняющие профиль wrappers блокируются.
+
+Подключение и каждая preflight-операция ограничены 10 секундами; создание и
+подтверждение делят общий бюджет 30 секунд. Handoff ack ожидается отдельно до
+120 секунд. Нет SDK/API/доступа — `blocked`, без автоматической установки и
+fallback к `it2 tab new --command`, send/run/send_text.
 
 Проверка effective config выполняет обычную инициализацию app-server и
 `config/read` в выбранном login shell/cwd, без thread/turn start. Она может
@@ -90,17 +109,24 @@ runtime bindings не исключены. Подробнее — [границы
 
 | JSON `status` / exit | Что подтверждено |
 | --- | --- |
-| `launched` / 0 | В нужном окне найден единственный созданный session ID, совпадают profile name/GUID, наблюдается job `codex` с полной ожидаемой командой `-C cwd prompt` |
+| `launched` / 0 | В нужном окне найден единственный созданный session ID, совпадают profile name/GUID, наблюдается job `codex` с полной ожидаемой командой выбранного режима |
 | `created_unverified` / 3 | Известна созданная вкладка/сессия, но наблюдений для `launched` недостаточно |
 | `unknown` / 3 | Исход создания неопределён; известные ID сохранены, если доступны |
 | `blocked` / 2 | Prerequisite не выполнен; вкладка не создаётся |
 
-`window_id`, `tab_id`, `session_id`, `profile` и ограниченные findings возвращаются
+`mode=launch_codex`, `launch_mode=handoff|resume`, `resume_session_id` (UUID
+диалога или null), `window_id`, `tab_id`, `session_id`, `profile` и findings возвращаются
 без handoff, полных настроек/экрана и stderr внешних команд. `launched` не доказывает
-получение поручения или работу clipboard. При неопределённом исходе сначала
+получение поручения, восстановление истории или работу clipboard. `session_id` —
+ID терминала iTerm2, не UUID диалога Codex. Для resume ack не нужен: перед заявлением
+«диалог восстановлен» навык отдельно наблюдает историю/идентификатор в точной
+целевой вкладке read-only. Без этого: «команда resume запущена, восстановление
+истории не подтверждено». При неопределённом исходе сначала
 осмотрите известные ID: не повторяйте запуск/поручение автоматически, не закрывайте
 вкладку и не завершайте процессы пользователя. Новая сессия, handoff и ack остаются
-для диагностики. Живое копирование и поведение агента пока не проверены.
+для диагностики. Живая приёмка обоих режимов и копирования — отдельный этап;
+[поведенческие проверки](https://github.com/YarikMix/iterm2-utils/blob/main/docs/superpowers/validation/2026-11-01-launch-api-resume/skill-results.md)
+используют только вымышленные текстовые сценарии и не доказывают живой запуск.
 
 При ручном запуске CLI сначала выберите функции:
 
