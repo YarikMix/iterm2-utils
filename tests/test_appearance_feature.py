@@ -93,6 +93,45 @@ class AppearanceTests(LifecycleFixture):
         self.assertTrue((self.context.paths.data/'current/hook.py').exists())
         self.assertFalse(list((self.context.paths.data/'appearance/icons').glob('*.png')))
 
+    def test_web_rules_preserve_existing_five_pairs_and_other_consumers(self):
+        foreign = 'function chpwd { print -r -- foreign-directory-hook; }\n# user shell text\n'
+        self.context.paths.zshrc.write_text(foreign)
+        pairs = (('android-mail', '#31AD64'), ('android-cloud', '#568DCE'),
+                 ('ios-mail', '#E58E45'), ('ios-cloud', '#8BC5E8'),
+                 ('kotlett', '#B690D4'))
+        five = [dict(root=str((self.context.paths.home/icon).resolve()), color=color, icon=icon)
+                for icon, color in pairs]
+        self.source.write_text(json.dumps({'projects': five}))
+        initial = self.install('appearance', 'restore', 'status')
+        self.assertSuccess(initial)
+        config = self.context.paths.config/'appearance.json'
+        installed_five = json.loads(config.read_text())['projects']
+        self.assertEqual(installed_five, five)
+        seven = [*five, dict(root=str((self.context.paths.home/'web-cloud').resolve()), color='#D16D8A', icon='chrome-cloud'),
+                 dict(root=str((self.context.paths.home/'web-mail').resolve()), color='#8B8FDC', icon='chrome-mail')]
+        self.source.write_text(json.dumps({'projects': seven}))
+        replaced = self.install('appearance')
+        self.assertSuccess(replaced)
+        installed_seven = json.loads(config.read_text())['projects']
+        self.assertEqual(installed_seven[:5], installed_five)
+        self.assertEqual(installed_seven, seven)
+        self.assertEqual(replaced.receipt.selection.pairs, {'codex:appearance', 'codex:restore', 'codex:status'})
+        self.assertIn(foreign, self.context.paths.zshrc.read_text())
+        expected_pngs = {name: (self.context.paths.repo/f'runtime/assets/appearance/{name}.png').read_bytes()
+                         for name in ('chrome-mail', 'chrome-cloud')}
+        self.source.unlink()
+        self.context.appearance_config = None
+        updated = lifecycle.update(self.context, self.runner)
+        self.assertSuccess(updated)
+        self.assertEqual(json.loads(config.read_text())['projects'], installed_seven)
+        self.assertEqual(updated.receipt.selection.pairs, replaced.receipt.selection.pairs)
+        self.assertIn(foreign, self.context.paths.zshrc.read_text())
+        for name, content in expected_pngs.items():
+            self.assertEqual((self.context.paths.data/f'current/assets/appearance/{name}.png').read_bytes(), content)
+        settings = json.loads((self.context.paths.config/'runtime.json').read_text())
+        self.assertTrue(settings['status'])
+        self.assertTrue((self.context.paths.data/'current/codex_restore/codex-sessions').is_file())
+
     def test_claude_only_is_unsupported_and_untouched(self):
         before=self.snapshot();result=self.install('appearance',agents=('claude',))
         self.assertTrue(any(f.code=='codex_only' for f in result.findings));self.assertEqual(self.snapshot(),before)

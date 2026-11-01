@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zlib
+import xml.etree.ElementTree as ET
 
 from runtime.appearance import BUILTIN_ICONS, load_rules, select_rule
 
@@ -24,19 +25,24 @@ class AppearanceRulesTests(unittest.TestCase):
         self.config.write_text(json.dumps({'projects': projects}), encoding='utf-8')
         return load_rules(self.config)
 
-    def test_five_project_variants_and_color_normalization(self):
-        icons = ('android-mail', 'android-cloud', 'ios-mail', 'ios-cloud', 'kotlett')
+    def test_seven_project_pairs_select_and_outside_does_not(self):
+        pairs = (('android-mail', '#31AD64'), ('android-cloud', '#568DCE'),
+                 ('ios-mail', '#E58E45'), ('ios-cloud', '#8BC5E8'),
+                 ('kotlett', '#B690D4'), ('chrome-cloud', '#D16D8A'),
+                 ('chrome-mail', '#8B8FDC'))
         projects = []
-        for icon in icons:
-            (self.root / icon).mkdir()
-            projects.append(self.rule(icon, icon=icon))
+        for icon, color in pairs:
+            (self.root / icon / 'nested' / 'src').mkdir(parents=True)
+            projects.append(self.rule(icon, color.lower(), icon))
         rules = self.load(projects)
-        self.assertEqual(len(rules), 5)
-        for icon in icons:
+        self.assertEqual(len(rules), 7)
+        for icon, color in pairs:
             with self.subTest(icon=icon):
-                selected = select_rule(rules, self.root / icon)
-                self.assertEqual(selected['icon'], icon)
-                self.assertEqual(selected['color'], '#31AD64')
+                expected = self.rule(icon, color, icon)
+                self.assertEqual(select_rule(rules, self.root / icon), expected)
+                self.assertEqual(select_rule(rules, self.root / icon / 'nested' / 'src'), expected)
+        self.assertIsNone(select_rule(rules, self.root))
+        self.assertIsNone(select_rule(rules, self.root / 'mail'))
 
     def test_root_boundary_and_nested_precedence(self):
         rules = self.load([self.rule()])
@@ -163,9 +169,10 @@ class AppearanceRulesTests(unittest.TestCase):
 
 
 class AppearanceAssetsTests(unittest.TestCase):
-    def test_all_builtin_icons_have_rgba_png_and_original_svg(self):
+    def test_all_builtin_icons_have_rgba_png_and_self_contained_svg(self):
         assets = Path(__file__).resolve().parents[1] / 'runtime' / 'assets' / 'appearance'
-        expected = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud'}
+        expected = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud',
+                    'chrome-mail', 'chrome-cloud'}
         self.assertEqual(BUILTIN_ICONS, expected)
         self.assertEqual({path.stem for path in assets.glob('*.png')}, expected)
         self.assertEqual({path.stem for path in assets.glob('*.svg')}, expected)
@@ -190,7 +197,17 @@ class AppearanceAssetsTests(unittest.TestCase):
                 self.assertEqual(len(raw), height * (1 + width * 4))
                 # The transparent top-left pixel is zero under every PNG filter.
                 self.assertEqual(raw[1:5], bytes(4))
-                self.assertIn('<svg', (assets / f'{icon}.svg').read_text(encoding='utf-8'))
+                svg = (assets / f'{icon}.svg').read_text(encoding='utf-8')
+                tree = ET.fromstring(svg)
+                self.assertEqual(tree.tag, '{http://www.w3.org/2000/svg}svg')
+                self.assertNotIn('<?xml-stylesheet', svg.lower())
+                for element in tree.iter():
+                    self.assertNotIn(element.tag.rsplit('}', 1)[-1], ('script', 'style'))
+                    for key, value in element.attrib.items():
+                        if key.rsplit('}', 1)[-1] == 'href':
+                            self.assertTrue(value.startswith('#'), value)
+                        if 'url(' in value:
+                            self.assertRegex(value, r'^url\(#[A-Za-z0-9_-]+\)$')
 
 
 if __name__ == '__main__':

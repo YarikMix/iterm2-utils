@@ -16,10 +16,10 @@ from ..models import ChangeSet, Context, Selection, FileEdit, SymlinkEdit, Findi
 OWNER = 'shared:shell'
 RUNTIME_OWNER = 'shared:runtime'
 DEPENDENTS = frozenset({'status', 'notifications', 'restore', 'appearance'})
-# Only these original drawings belong in immutable runtime releases.
+# Only these named assets belong in immutable runtime releases.
 APPEARANCE_ASSETS = tuple(Path('assets/appearance') / (name + '.' + extension)
                           for name in ('ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud',
-                                       'android-mail', 'android-cloud')
+                                       'android-mail', 'android-cloud', 'chrome-mail', 'chrome-cloud')
                           for extension in ('png', 'svg'))
 
 

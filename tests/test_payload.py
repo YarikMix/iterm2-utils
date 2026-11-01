@@ -75,7 +75,8 @@ class AppearancePayloadTests(test_shell.ShellFixture, unittest.TestCase):
         release = Path(next(e.after for e in changes.edits if isinstance(e, SymlinkEdit)))
         files = {str(e.path.relative_to(release)): e.after
                  for e in changes.edits if isinstance(e, FileEdit)}
-        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud'}
+        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud',
+                 'chrome-mail', 'chrome-cloud'}
         self.assertEqual({p for p in files if p.startswith('assets/')},
                          {f'assets/appearance/{name}.{ext}' for name in names for ext in ('png', 'svg')})
         self.assertTrue({'appearance.py', 'appearance.zsh', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
@@ -90,7 +91,7 @@ class AppearancePayloadTests(test_shell.ShellFixture, unittest.TestCase):
         selection = self.selection(('appearance',))
         first = runtime_payload(self.context, selection)
         fingerprint = plan(self.context, selection).fingerprint
-        target = checkout/'runtime/assets/appearance/android.png'
+        target = checkout/'runtime/assets/appearance/android-mail.png'
         target.write_bytes((checkout/'runtime/assets/appearance/ios.png').read_bytes())
         second = runtime_payload(self.context, selection)
         self.assertNotEqual(next(e.after for e in first.edits if isinstance(e, SymlinkEdit)),
@@ -118,44 +119,62 @@ class AppearancePayloadTests(test_shell.ShellFixture, unittest.TestCase):
         checkout = self.checkout()
         fixture.context.paths = replace(fixture.context.paths, repo=checkout)
         fixture.context.capabilities |= {'python:iterm2'}
-        project = fixture.context.paths.home/'project'; project.mkdir()
-        custom_root = project/'custom'; custom_root.mkdir()
-        original_png = fixture.context.paths.home/'original.png'
-        original_png.write_bytes((checkout/'runtime/assets/appearance/ios.png').read_bytes())
-        source = fixture.context.paths.home/'source-rules.json'
-        source.write_text(json.dumps({'projects': [dict(root=str(project),color='#123456',icon='android-mail'),
-                                                    dict(root=str(custom_root),color='#654321',icon=str(original_png))]}))
+        home = fixture.context.paths.home
+        names = ('ios-mail', 'ios-cloud', 'android-mail', 'android-cloud',
+                 'chrome-mail', 'chrome-cloud', 'kotlett')
+        projects = []
+        expected = {}
+        for name in names:
+            project = home/name; project.mkdir()
+            projects.append(dict(root=str(project), color='#123456', icon=name))
+            asset = checkout/f'runtime/assets/appearance/{name}.png'
+            self.assertTrue(asset.is_file(), f'Missing builtin asset: {name}')
+            expected[name] = asset.read_bytes().hex()
+        custom_root = home/'custom'; custom_root.mkdir()
+        original_png = home/'original.png'
+        custom_bytes = (checkout/'runtime/assets/appearance/ios.png').read_bytes()
+        original_png.write_bytes(custom_bytes)
+        projects.append(dict(root=str(custom_root), color='#654321', icon=str(original_png)))
+        expected['custom'] = custom_bytes.hex()
+        source = home/'source-rules.json'
+        source.write_text(json.dumps({'projects': projects}))
         fixture.context.appearance_config = source
         result = fixture.install('appearance'); fixture.assertSuccess(result)
         current = fixture.context.paths.data/'current'
         config = fixture.context.paths.config/'appearance.json'
         source.unlink(); original_png.unlink(); shutil.rmtree(checkout)
-        script = """import importlib.util, pathlib, sys
-current, config, project, custom, outside = map(pathlib.Path, sys.argv[1:])
+        script = """import hashlib, json, pathlib, sys
+current, config, home = map(pathlib.Path, sys.argv[1:4])
+expected = json.loads(sys.argv[4])
 sys.path.insert(0, str(current))
 import appearance
 rules = appearance.load_rules(config)
+assert len(rules) == 8
 seen = []
 async def worker(request):
-    if pathlib.Path(request['cwd']) == outside:
+    cwd = pathlib.Path(request['cwd'])
+    if cwd == home:
         assert request.get('reset') is True, request
         assert not {'color', 'icon', 'preserve'} & request.keys()
         seen.append(None)
         return 'applied'
+    name = cwd.name
+    wanted_bytes = bytes.fromhex(expected[name])
     icon = pathlib.Path(request['icon'])
-    assert icon.is_file() and icon.read_bytes().startswith(bytes([137])+b'PNG')
-    seen.append(icon)
+    assert icon.is_file() and icon.read_bytes() == wanted_bytes, name
+    wanted_path = (current/'assets/appearance'/(name+'.png') if name != 'custom' else
+                   current.parent/'appearance/icons'/(hashlib.sha256(wanted_bytes).hexdigest()+'.png'))
+    assert icon == wanted_path, (icon, wanted_path)
+    seen.append(name)
     return 'applied'
 appearance._operate = worker
-for cwd in (project, custom, outside):
+for cwd in [*(home/name for name in expected), home]:
     assert appearance._run_request(dict(config=str(config), cwd=str(cwd), phase='shell', terminal='12345678-1234-4234-8234-123456789abc')) == 'applied'
-assert seen[0] == current/'assets/appearance/android-mail.png'
-assert seen[1].parent.name == 'icons'
-assert seen[2] is None
+assert seen == [*expected, None], seen
 assert (current/'LICENSE').is_file() and (current/'THIRD_PARTY_NOTICES.md').is_file()
 """
-        result = subprocess.run([sys.executable, '-c', script, str(current), str(config), str(project), str(custom_root), str(fixture.context.paths.home)],
-                                cwd=fixture.context.paths.home, env={'PATH':'/usr/bin:/bin', 'PYTHONNOUSERSITE':'1'},
+        result = subprocess.run([sys.executable, '-c', script, str(current), str(config), str(home), json.dumps(expected)],
+                                cwd=home, env={'PATH':'/usr/bin:/bin', 'PYTHONNOUSERSITE':'1'},
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
 
