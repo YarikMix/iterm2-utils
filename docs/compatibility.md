@@ -301,3 +301,33 @@ agents remain outside this change. Already running user shells are not updated
 remotely; use a fresh tab or explicitly restart zsh to load the updated hook.
 Uninstall does not reset or restart existing tabs. Raw native evidence, screenshots
 and personal paths remain private and are excluded from the release.
+
+## Branded repository icons — 2026-11-01, acceptance pending
+
+Current delivery has nine builtin names: `ios`, `android`, `kotlett`, `ios-mail`,
+`ios-cloud`, `android-mail`, `android-cloud`, `chrome-mail`, `chrome-cloud`.
+The four mobile names are preserved with updated branded artwork; base ios,
+android and kotlett images are unchanged. Six composites use variant B: larger
+platform and a square service badge at bottom right. Mail uses white @ on blue,
+Cloud its branded white contour on blue, and Chrome its official full-color mark.
+Each ships offline as matching SVG and transparent 128×128 PNG. Public-source
+provenance, transformations and brand ownership are in
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md); third-party artwork is separate
+from MIT code/original illustrations. Earlier seven-asset verification and
+five-rule native observations above remain historical evidence.
+
+| New verification scope | Status |
+| --- | --- |
+| Final full automated gate, shell regressions, sources/skills and archive byte/checksum verification | PASS: 578 tests (577 OK, one case-sensitive-filesystem skip), 120.633s; appearance22/restore37/dispatcher PASS; sources27/structural skills2/export135; archive135 unique regular entries,135 source-byte comparisons and basename-only checksum PASS |
+| Selected preview/install with seven local rules; previous five triples and other consumers preserved | PASS: appearance-only dry-run/install, exact seven rules with previous five triples/order and selection preserved,18 installed asset byte comparisons. General plan still reports the pre-existing unrelated notifications policy limitation; notifications were not changed |
+| Selected-interpreter SDK, authorized API and pending-step verification | PASS: existing Python3.13.7 SDK import and explicit-session native API access; previous authorization reused, install pending0. No new permissions or reconcile step required; offline diagnostic findings unchanged |
+| Native six branded composites, unchanged Kotlett, seven colors, subdirectories and outside reset | PASS:27 checks, seven roots and one existing subdirectory per root, startup/outside default (all three use-color flags false, Icon0/path empty), rapid final state/no late writer and unchanged neighboring control. Native icon paths and bytes match the reviewed pairs |
+| Normal-size tabbar readability in an exact owned-window crop | PASS on iTerm2 3.7.6:1200px owned window, eight tabs including outside control; all six brand pairs and Kotlett visible. All eight captured own sessions closed and own window absence verified; working user tabs preserved |
+| New CI run | Not yet observed at this local evidence checkpoint; final PR checks report their own outcome |
+
+Fixture/structural checks cannot establish native rendering or agent behavior.
+Personal roots, source JSON and screenshots stay private and outside the archive.
+Actual theme switching, a fresh Codex/APS run and a new restore-picker run were
+not repeated for this artwork-only change; directory/observer behavior is unchanged.
+Running shells require a fresh tab or an explicit `exec zsh` to load updated hooks;
+working user tabs are not restarted automatically.

@@ -91,8 +91,8 @@ requires `--appearance-config /path/to/rules.json`, with this strict schema:
 
 Only `projects` at the top level; a nonempty list of objects containing exactly
 `root`, `color`, `icon`. Root is absolute, color is `#RRGGBB`, icon is one of
-`ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`, `android-mail`, `android-cloud`
-or an absolute custom `.png` path. PNG limits: 16 MiB source, 4096 pixels per side,
+`ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`, `android-mail`, `android-cloud`,
+`chrome-mail`, `chrome-cloud` (nine builtins), or an absolute custom `.png` path. PNG limits: 16 MiB source, 4096 pixels per side,
 128 MiB decoded data. No URLs or evaluated shell text. Most specific physical
 root wins; duplicate physical roots are rejected. Unavailable external targets
 are not created/scanned and do not apply. Never publish personal roots/rules.
@@ -101,8 +101,14 @@ Plan/dry-run validate files and the selected interpreter's `iterm2` import witho
 calling the API. Maintain an absolute `ITERM2_UTILS_PYTHON` override on subsequent
 setup commands when choosing a nondefault existing Python. No startup pip or
 image download. Install copies normalized rules and content-addressed custom PNGs
-outside immutable runtime; seven builtins and SVG sources ship offline with MIT
-attribution. Runtime survives removal of checkout/original JSON/PNG. Install
+outside immutable runtime; all nine builtins ship offline as transparent 128×128
+PNGs with matching SVG sources. The six Mail/Cloud composites use variant B:
+larger platform, square service badge at bottom right. Mail is white @ on blue,
+Cloud is the branded white contour on blue, and web pairs use official full-color
+Chrome. Base ios/android/kotlett images are unchanged; four mobile pair names
+are retained. There is no standalone chrome builtin. THIRD_PARTY_NOTICES.md records
+public sources, transformations and brand ownership separately from MIT code and
+original package illustrations. Runtime survives removal of checkout/original JSON/PNG. Install
 without a new JSON reuses owned rules; explicit new JSON replaces the owned set.
 Update needs no original source. Changed/foreign values remain conflicts.
 
@@ -129,3 +135,7 @@ Uninstall removes only unchanged owned appearance resources, keeps shared
 consumers, and does not reset/restart open tabs. Old custom hash copies remain
 owned until uninstall; an empty config object may remain after removal. New
 generated startup omits appearance source; running shells are not changed remotely.
+
+Branded-image acceptance is separately pending: six composites and unchanged
+Kotlett in a normal-size native tabbar, seven selected rules, subdirectories and
+outside reset. Earlier five-rule live evidence does not establish this acceptance.

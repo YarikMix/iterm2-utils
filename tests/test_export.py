@@ -88,9 +88,10 @@ class ExportTests(unittest.TestCase):
             self.assertIn('Duplicate export path: runtime/native_status.py', check_export.check(ROOT))
 
     def test_appearance_delivery_contract(self):
-        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud'}
+        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud',
+                 'chrome-mail', 'chrome-cloud'}
         assets = {f'runtime/assets/appearance/{name}.{ext}' for name in names for ext in ('png', 'svg')}
-        self.assertTrue(assets <= set(check_export.EXPORT_FILES))
+        self.assertEqual({p for p in check_export.EXPORT_FILES if p.startswith('runtime/assets/appearance/')}, assets)
         self.assertTrue({'runtime/appearance.py', 'runtime/appearance.zsh', 'iterm2_utils/features/appearance.py',
                          'docs/repo-appearance.md', 'tests/test_appearance_shell.zsh',
                          'tests/test_appearance_rules.py', 'tests/test_appearance_runtime.py',

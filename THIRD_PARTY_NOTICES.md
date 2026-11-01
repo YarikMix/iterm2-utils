@@ -63,16 +63,35 @@ ref/original hash and bundled hashes remain separate in sources.lock.json. Local
 port entries explicitly link this repository's LICENSE and these notices; they
 do not assign a license to the legacy repository.
 
-`runtime/assets/appearance/` contains seven original vector drawings created for
-this repository: `ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`,
-`android-mail` and `android-cloud`. Their SVG sources and rasterized transparent
-PNG counterparts are distributed under this repository's MIT license (LICENSE).
+`runtime/assets/appearance/` contains nine named SVG/PNG pairs. The generic
+phone (`ios`), robot (`android`) and cutlet (`kotlett`) are original illustrations
+created for this repository and distributed under its MIT license (LICENSE).
+The six service/platform composites reuse the phone or robot, or the official
+Chrome logo, with branded Mail or Cloud artwork from these public sources:
+
+| Artwork | Public upstream SVG | Upstream SHA256 |
+| --- | --- | --- |
+| Mail `@` | https://cloud.imgsmail.ru/cloud.mail.ru/hashes/img/portal-header/38ee4afd7a08350c7d70.svg | `8797246440d02769af6ae58cf3fdd90f9ce56858f02098a0dee5a8b659129897` |
+| Cloud | https://cloud.imgsmail.ru/cloud.mail.ru/hashes/img/54cbc3d30f0b1da1d208.svg | `71706ae50083d481d84e172308b858abba2979b2f90dff08d6d2ee0da0ffb333` |
+| Google Chrome | https://www.google.com/chrome/static/images/chrome-logo-m100.svg | `1357dd965397a99cbc937ddd2345a9897d527f7229c8b0f2aeebac97680cc66d` |
+
+Mail and Cloud artwork and marks belong to Mail / VK; Chrome artwork and marks
+belong to Google. These upstream graphics are third-party brand artwork, not
+original package drawings, and are not covered by this repository's MIT grant.
+No separate license grant for that artwork is asserted here.
+
+Transformations: only the separate `@` path from the Mail 135×30 wordmark is
+used (the 0..30 area, without wordmark text), recolored white and placed on a
+rounded `#0077FF` square. Cloud's rounded blue square and white contour, and
+Chrome's colored paths and gradients, are scaled proportionally. Each composite
+places the larger platform behind a 74×74 service badge at the bottom right
+of the transparent 128×128 canvas; all paths and gradients are inline in SVG.
 PNG files were rendered from the accompanying SVG with librsvg `rsvg-convert`;
-the renderer is not bundled. The phone, robot, cutlet, envelope and cloud are
-generic illustrative symbols, not copied official product or brand logos.
-No external artwork or downloaded images are included in these assets.
-The seven named PNG/SVG pairs and this attribution ship in immutable installed
-runtime releases and the public archive; no renderer or image download is needed
-for installation or shell startup. The shared `runtime/codex.zsh` adaptation also
-adds optional appearance launch/return phases without changing its pinned source
-identity or the original restore classifier attribution above.
+the renderer is a developer tool and is not bundled or required for installation
+or shell startup. No internal-repository artwork is included.
+
+All nine named PNG/SVG pairs and these notices ship in immutable installed
+runtime releases and the public archive; installation and shell startup do not
+download images. The shared `runtime/codex.zsh` adaptation also adds optional
+appearance launch/return phases without changing its pinned source identity or
+the original restore classifier attribution above.

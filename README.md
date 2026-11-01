@@ -137,8 +137,14 @@ python3 -m iterm2_utils doctor --json
 
 Восьмая опция [`appearance`](docs/repo-appearance.md) выбирается явно через
 `--features appearance --appearance-config /path/to/rules.json` в plan/install.
-Правила задают абсолютный root, `#RRGGBB` и одно из семи встроенных имён либо свой
-PNG. Исходные JSON/PNG и checkout runtime после установки не нужны. Bootstrap
+Правила задают абсолютный root, `#RRGGBB` и одно из девяти встроенных имён либо свой
+PNG: `ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`, `android-mail`,
+`android-cloud`, `chrome-mail`, `chrome-cloud`. В шести сочетаниях платформа крупнее,
+а фирменный значок Почты (белая `@` на синем) или Облака (белый контур на синем)
+расположен справа снизу; веб-пары используют официальный цветной знак Chrome.
+Базовые `ios`, `android`, `kotlett` сохранены. Прозрачные PNG 128×128 и SVG
+поставляются офлайн; происхождение и права на брендовые изображения — в
+[notices](THIRD_PARTY_NOTICES.md). Исходные JSON/PNG и checkout runtime после установки не нужны. Bootstrap
 appearance не включает. Обычный `cd` в зарегистрированный корень или подкаталог
 меняет пару, выход из всех корней отключает Tab Color и скрывает custom icon,
 учитывая base/light/dark варианты без назначения «дефолтного» RGB. Это обновление

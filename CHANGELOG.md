@@ -3,7 +3,7 @@
 ## Unreleased
 
 Added explicit Codex-only `appearance`: repository JSON rules choose a session
-color and one of seven bundled composite PNGs or an owned copy of a custom PNG.
+color and one of nine bundled PNGs or an owned copy of a custom PNG.
 Applies at interactive shell start, ordinary cd and Codex start (including
 resume/fork/restore). Leaving registered roots disables base/light/dark Tab Color
 and hides the custom icon without choosing a default RGB. A once-only native zsh
@@ -13,8 +13,14 @@ or JSON schema. Unavailable roots never match or get created. Uses the shared
 installer/dispatcher and selected Python 3.11+ with the official iterm2 SDK.
 Update works without original JSON/PNG; selective uninstall preserves foreign
 changes and other runtime consumers. API authorization stays pending until the
-explicit-session read-only reconcile succeeds. Offline assets, original SVGs and
-MIT attribution are included in runtime/export. Fixture delivery and lifecycle
+explicit-session read-only reconcile succeeds. Existing `ios-mail`, `ios-cloud`,
+`android-mail`, `android-cloud` names now use branded Mail/Cloud artwork;
+`chrome-mail` and `chrome-cloud` add the official Chrome mark. The platform stays
+larger with the service badge at bottom right (variant B); base `ios`, `android`
+and `kotlett` assets are unchanged. Transparent 128×128 PNGs and matching SVGs ship
+offline in runtime/export. Public-source provenance, transformations and brand
+ownership are recorded in THIRD_PARTY_NOTICES.md; third-party artwork is separate
+from the package's MIT code/original illustrations. Fixture delivery and lifecycle
 checks do not establish live APS transitions, icon readability or API permission.
 
 Added `launch-codex` and the separately installed Codex-only `iterm2-launch`

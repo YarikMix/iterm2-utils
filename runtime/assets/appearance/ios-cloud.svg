@@ -1,7 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect x="9" y="6" width="64" height="116" rx="14" fill="#18283b" stroke="#e6f4ff" stroke-width="4"/>
-  <rect x="17" y="23" width="48" height="78" rx="3" fill="#8edbff"/>
-  <path d="M33 15h16" stroke="#e6f4ff" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="41" cy="112" r="5" fill="#e6f4ff"/>
-  <path d="M62 111a18 18 0 0 1-5-35 25 25 0 0 1 47-6 21 21 0 0 1-1 41z" fill="#62adff" stroke="#18283b" stroke-width="5" stroke-linejoin="round"/>
+  <g transform="translate(-7.9333333333 -3.9333333333) scale(0.9833333333)">
+<rect x="29" y="6" width="70" height="116" rx="15" fill="#18283b" stroke="#e6f4ff" stroke-width="4" />
+<rect x="37" y="24" width="54" height="76" rx="4" fill="#8edbff" />
+<path d="M55 15h18" stroke="#e6f4ff" stroke-width="4" stroke-linecap="round" />
+<circle cx="64" cy="111" r="5" fill="#e6f4ff" />
+  </g>
+  <g transform="translate(52 52) scale(0.5138888889)">
+<rect width="144" height="144" rx="36" fill="#07F" />
+<path fill-rule="evenodd" clip-rule="evenodd" d="M67.212 42.519c-11.748 0-21.272 9.523-21.272 21.27 0 1.013.07 2.005.206 2.973l.894 6.41-6.471.136c-7.639.16-13.785 6.405-13.785 14.084 0 7.78 6.308 14.088 14.088 14.088l57.468.001c10.425 0 18.877-8.451 18.877-18.877 0-10.425-8.452-18.877-18.877-18.877a19.01 19.01 0 0 0-3.563.335l-5.59 1.066-1.126-5.578C86.1 49.833 77.503 42.52 67.211 42.52Zm31.599 70.463v.004h-58.67v-.011c-13.796-.387-24.861-11.693-24.861-25.583 0-11.918 8.147-21.933 19.176-24.78.621-17.556 15.049-31.598 32.756-31.598 14.035 0 26 8.817 30.675 21.212l.453-.003c16.779 0 30.381 13.602 30.381 30.381 0 16.622-13.348 30.126-29.91 30.378Z" fill="#fff" />
+  </g>
 </svg>

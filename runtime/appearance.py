@@ -22,7 +22,7 @@ except ImportError:
 
 BUILTIN_ICONS = frozenset({
     'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud',
-    'android-mail', 'android-cloud',
+    'android-mail', 'android-cloud', 'chrome-mail', 'chrome-cloud',
 })
 
 
