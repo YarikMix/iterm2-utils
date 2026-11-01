@@ -47,6 +47,7 @@ def launch(request: LaunchRequest, paths: Paths, runner: Runner) -> tuple[int, d
     if inspection is None:
         return 2, output
     transport = LaunchITerm(str(inspection.it2), timeout=3)
+    transport.executable = str(inspection.it2)  # Launch must ignore restore-only executable overrides.
     transport.deadline = time.monotonic()+15
     output['window_id'] = request.window_id
     key = None

@@ -88,6 +88,19 @@ class LaunchTests(unittest.TestCase):
             self.assertFalse(any(a[1:3] in (['session', 'run'], ['session', 'focus'], ['session', 'close'], ['tab', 'close']) for a in state['calls']))
             self.assertEqual(output['mode'], 'launch_codex')
 
+    def test_launch_ignores_restore_transport_override(self):
+        from runtime.codex_restore.codexlib.iterm import IT2_DEFAULT
+        with Fixture() as f:
+            m, paths, request, inspection, state = self.fixture(f)
+            inspection = replace(inspection, it2=Path(IT2_DEFAULT))
+            m.inspect_launch.return_value = (inspection, [])
+            with patch.dict('os.environ', {'CODEX_RESTORE_IT2': str(f.home/'unverified-it2')}):
+                code, output = m.launch(request, paths, f.runner)
+            self.assertEqual((code, output['status']), (0, 'launched'))
+            self.assertTrue(state['calls'])
+            self.assertTrue(all(argv[0] == IT2_DEFAULT for argv in state['calls']))
+            self.assertEqual(sum(a[1:3] == ['tab', 'new'] for a in state['calls']), 1)
+
     def test_mutation_timeout_never_retries(self):
         with Fixture() as f:
             m, paths, request, _, state = self.fixture(f)
