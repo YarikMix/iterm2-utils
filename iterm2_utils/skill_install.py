@@ -11,43 +11,51 @@ from .models import ChangeSet, Context, FileEdit, Finding, Plan, Selection
 AGENTS = frozenset({'codex', 'claude'})
 OWNER = 'bootstrap-skill'
 FILES = ('SKILL.md', 'references/features.md', 'references/ui.md', 'references/troubleshooting.md')
+BUNDLES = {'iterm2-setup': FILES, 'iterm2-launch': ('SKILL.md', 'references/handoff.md')}
 
 
-def _context(context):
-    return replace(context, paths=replace(context.paths, data=context.paths.data/'bootstrap-skill'))
+def _context(context, skill):
+    receipt = OWNER if skill == 'iterm2-setup' else OWNER+'-'+skill
+    return replace(context, paths=replace(context.paths, data=context.paths.data/receipt))
 
 
-def _destination(context, agent):
+def _destination(context, agent, skill):
     root = context.paths.codex_home if agent == 'codex' else context.paths.home/'.claude'
-    return root/'skills/iterm2-setup'
+    return root/'skills'/skill
 
 
 def _conflict(agent, code, message):
     return Finding('skill', agent, code, 'conflict', message)
 
 
-def build(context: Context, agents: frozenset[str]) -> ChangeSet:
+def build(context: Context, agents: frozenset[str], *, skill='iterm2-setup') -> ChangeSet:
     """Prepare selected destinations only; existing foreign directories are refused."""
     changes = ChangeSet([], [], [])
+    if skill not in BUNDLES:
+        changes.findings.append(_conflict(None, 'invalid_skill', 'Select iterm2-setup or iterm2-launch.'))
+        return changes
     if not agents or agents - AGENTS:
         changes.findings.append(_conflict(None, 'invalid_agents', 'Select codex, claude or both.'))
         return changes
+    if skill == 'iterm2-launch' and agents != frozenset({'codex'}):
+        changes.findings.append(_conflict(None, 'invalid_agents', 'Select only codex for iterm2-launch.'))
+        return changes
     try:
-        receipt = state.load(_context(context).paths.data/'receipt.json')
+        receipt = state.load(_context(context, skill).paths.data/'receipt.json')
         owned = {r['target']: r['installed'] for r in receipt.resources
                  if r['kind'] == 'file' and r['owners'] == [OWNER]} if receipt else {}
-        source = context.paths.repo/'skills/iterm2-setup'
+        source = context.paths.repo/'skills'/skill
         payload = {}
-        for name in FILES:
+        for name in BUNDLES[skill]:
             path = source/name
             if path.is_symlink() or not path.is_file():
                 raise ValueError('Invalid public skill bundle')
             payload[name] = path.read_bytes()
         for agent in sorted(agents):
-            destination = _destination(context, agent)
+            destination = _destination(context, agent, skill)
             if destination.is_symlink() or (destination.exists() and
                     (not destination.is_dir() or str((destination/'SKILL.md').resolve()) not in owned)):
-                changes.findings.append(_conflict(agent, 'foreign_skill', 'Existing iterm2-setup path is not owned by this bootstrap; preserve it and choose a resolution.'))
+                changes.findings.append(_conflict(agent, 'foreign_skill', f'Existing {skill} path is not owned by this bootstrap; preserve it and choose a resolution.'))
                 continue
             edits = []
             for name, content in payload.items():
@@ -73,12 +81,12 @@ def build(context: Context, agents: frozenset[str]) -> ChangeSet:
     return changes
 
 
-def install(context, agents, runner, *, dry_run=False):
+def install(context, agents, runner, *, dry_run=False, skill='iterm2-setup') -> list[Finding]:
     """Apply a skill-only transaction without touching the feature receipt."""
-    changes = build(context, agents)
+    changes = build(context, agents, skill=skill)
     if dry_run or any(f.state == 'conflict' for f in changes.findings):
         return changes.findings
-    isolated = _context(context)
+    isolated = _context(context, skill)
     try:
         receipt = state.load(isolated.paths.data/'receipt.json')
         selected = agents | (receipt.selection.agents if receipt else frozenset())

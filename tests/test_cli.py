@@ -220,3 +220,46 @@ class CliTests(unittest.TestCase):
             self.assertTrue(any(item['code']=='ownership_unavailable' and item['state']=='conflict' for item in json.loads(out)['findings']))
             self.assertNotIn('PRIVATE_CORRUPT_RECEIPT',out+err)
             self.assertEqual(f.snapshot(),before)
+
+    def test_launch_dispatches_before_general_discovery_and_receipts(self):
+        import importlib.util
+        self.assertIsNotNone(importlib.util.find_spec('iterm2_utils.launch'), 'Launch is not implemented')
+        from iterm2_utils.launch_checks import LaunchRequest
+        with Fixture() as f:
+            output = dict(mode='launch_codex', status='created_unverified', window_id='w',
+                          tab_id='t', session_id=None, profile='Codex', findings=[])
+            with patch('iterm2_utils.cli.discover', side_effect=AssertionError('general discovery')), \
+                    patch('iterm2_utils.cli.state.load', side_effect=AssertionError('receipt')), \
+                    patch('iterm2_utils.launch.launch', return_value=(3, output)) as launch:
+                args = ['launch-codex', '--window', 'w', '--profile', 'Codex', '--cwd', str(f.home), '--handoff', str(f.home/'handoff')]
+                code, out, err = self.invoke(f, args+['--json'])
+                self.assertEqual(code, 3, err)
+                self.assertEqual(json.loads(out), output)
+                request = launch.call_args.args[0]
+                self.assertEqual(request, LaunchRequest('w', 'Codex', f.home, f.home/'handoff'))
+                code, out, err = self.invoke(f, args)
+                self.assertEqual(code, 3, err)
+                for value in ('created_unverified', 'window_id="w"', 'tab_id="t"', 'session_id=null'):
+                    self.assertIn(value, out)
+
+    def test_launch_requires_all_values_and_rejects_extra_codex_flags(self):
+        args = ['launch-codex', '--window', 'w', '--profile', 'Codex', '--cwd', '/tmp', '--handoff', '/tmp/task']
+        with Fixture() as f:
+            for offset in (1, 3, 5, 7):
+                code, _, _ = self.invoke(f, args[:offset]+args[offset+2:])
+                self.assertEqual(code, 2)
+            code, _, _ = self.invoke(f, args+['--no-alt-screen'])
+            self.assertEqual(code, 2)
+            self.assertEqual(f.runner.calls, [])
+
+    def test_launch_text_escapes_invalid_target_controls(self):
+        import importlib.util
+        self.assertIsNotNone(importlib.util.find_spec('iterm2_utils.launch'))
+        output = dict(mode='launch_codex', status='blocked', window_id=None, tab_id=None,
+                      session_id=None, profile='bad\nprofile\x1b', findings=[])
+        with Fixture() as f, patch('iterm2_utils.launch.launch', return_value=(2, output)):
+            code, out, err = self.invoke(f, ['launch-codex', '--window', 'w', '--profile', output['profile'],
+                '--cwd', str(f.home), '--handoff', str(f.home/'handoff')])
+            self.assertEqual(code, 2, err)
+            self.assertEqual(len(out.splitlines()), 1)
+            self.assertNotIn('\x1b', out)

@@ -1,6 +1,7 @@
 """Public diagnostics serialize an allowlist, never settings or subprocess output."""
 import argparse
 import json
+from pathlib import Path
 from dataclasses import asdict
 from .commands import Runner
 from .discovery import discover, resolve_paths, live_status
@@ -57,7 +58,12 @@ def main(argv=None):
             command_parser.add_argument('--live',action='store_true')
         elif command == 'reconcile':
             command_parser.add_argument('--step',required=True)
-    bootstrap = sub.add_parser('bootstrap-skill', help='Copy only the public setup skill; select no terminal features.')
+    launch_parser = sub.add_parser('launch-codex', help='Launch one Codex in an explicit iTerm2 tab.')
+    for flag in ('window', 'profile', 'cwd', 'handoff'):
+        launch_parser.add_argument('--'+flag, required=True)
+    launch_parser.add_argument('--json', action='store_true')
+    bootstrap = sub.add_parser('bootstrap-skill', help='Copy one public skill; select no terminal features.')
+    bootstrap.add_argument('--skill', choices=['iterm2-setup','iterm2-launch'], default='iterm2-setup')
     bootstrap.add_argument('--agent', choices=['codex','claude','both'], required=True)
     bootstrap.add_argument('--dry-run', action='store_true')
     bootstrap.add_argument('--json', action='store_true')
@@ -76,12 +82,17 @@ def main(argv=None):
             return 2
     runner = Runner()
     paths = resolve_paths()
-    if args.command == 'bootstrap-skill':
+    if args.command == 'launch-codex':
+        from .launch import launch
+        from .launch_checks import LaunchRequest
+        request = LaunchRequest(args.window, args.profile, Path(args.cwd), Path(args.handoff))
+        status, output = launch(request, paths, runner)
+    elif args.command == 'bootstrap-skill':
         from . import skill_install
         agents = AGENTS if args.agent == 'both' else frozenset({args.agent})
         # Bootstrap reads only its own bundle/receipt, never agent settings or binaries.
         context = Context(paths, {}, {}, frozenset(), {}, {})
-        findings = skill_install.install(context, agents, runner, dry_run=args.dry_run)
+        findings = skill_install.install(context, agents, runner, dry_run=args.dry_run, skill=args.skill)
         output = dict(mode='bootstrap_preview' if args.dry_run else 'bootstrap_skill',
                       selection=dict(agents=sorted(agents), features=[], shortcuts=[], parent_profile='Default'),
                       findings=[asdict(f) for f in findings])
@@ -148,7 +159,11 @@ def main(argv=None):
     if args.json:
         print(json.dumps(output,sort_keys=True))
     else:
-        print(output['mode'].replace('_',' ').capitalize()+'.')
+        if args.command == 'launch-codex':
+            print(output['status']+' '+ ' '.join(key+'='+json.dumps(output[key])
+                  for key in ('window_id', 'tab_id', 'session_id', 'profile')))
+        else:
+            print(output['mode'].replace('_',' ').capitalize()+'.')
         for finding in output['findings']:
             print(f"{finding['feature']} ({finding['agent'] or 'selection'}): {finding['state']}: {finding['message']}")
         if args.command == 'doctor':

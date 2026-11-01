@@ -5,6 +5,79 @@ Release: **v0.1.0-beta.1**, 2026-10-23. Supported target: macOS + zsh with Pytho
 it does not establish Linux product support. This beta has no stable-production
 acceptance claim.
 
+## Codex launch verification — 2026-11-01
+
+`launch-codex` supports a new Codex session on macOS + zsh with Python 3.11+.
+It requires an explicit window ID, unique profile name/GUID, absolute cwd and
+regular readable handoff file. No restore installation/receipt is required.
+`bootstrap-skill --skill iterm2-launch --agent codex` is separate from the default
+setup-only bootstrap. These launch contracts do not extend the existing status,
+notification or hotkey version allowlists below.
+
+Local final checks on Darwin 25.6.0 arm64, Python 3.13.7 and zsh 5.9:
+
+| Exact command | Actual result |
+| --- | --- |
+| `python3 -m unittest discover -v` | 467 tests, PASS (90.028 s), including 8 export regressions and 75 restore Python tests |
+| `/bin/zsh tests/test_codex_shell.zsh` | PASS: `Codex dispatcher tests passed` |
+| `/bin/zsh tests/restore/test_codex.zsh` | PASS: `pass=37 fail=0` |
+| `python3 tools/check_sources.py` | 27 pinned sources verified |
+| `python3 tools/check_skill.py` | Both skills structurally valid; no behavioral evaluation |
+| `python3 tools/check_export.py` | 109 explicit unique files; provenance/licenses/private-reference checks PASS |
+| `python3 tools/build_release.py --destination dist` | Beta.1 archive and basename-only SHA-256 file built; no publication |
+| `git diff --check` | PASS, no whitespace errors |
+
+| Evidence | Scope / actual boundary |
+| --- | --- |
+| Codex source | Exactly rust-v0.166.0, `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`: canonical app-server `config/read`, effective `tui.alternate_screen` auto/always, `fullscreen_transcript` true and explicit `copy_on_select` never. Other Codex versions remain blocked/unverified. |
+| iTerm2 source | v3.7.6, `7ce456b98db38d3f0bafd70ffec87752e69d5d58`: explicit `it2 tab new --window --profile --command`, curated profile name/GUID and session profile/job variables. Runtime checks require the bundled CLI flags; later versions have no new live acceptance claim. |
+| Fixture transport | Extracted release imports the `runtime` namespace and launches through the actual bundled `ITerm._run` using fake executable `it2`, with one tab and no restore receipt. Both default setup and explicit launch bootstrap run from the archive. |
+| Standalone restore | Fixture install survives deletion of its source checkout, compressed archive and extracted runtime source; installed help and NUL-protocol restore list/open/cancel remain usable. |
+| Structural skills | Default validator checks setup and launch; an explicit directory still checks only that skill. No agent behavior is established. |
+| Behavioral skills | Launch held-out baseline RED and GREEN are **BLOCKED**, not run: no authorized isolated inference endpoint/auth was supplied. No model invocation or behavioral PASS is claimed. |
+| Live launch/clipboard | **Live-unverified**: no isolated Mac account/VM was supplied. No real settings, GUI, auth or developer sessions were inspected/launched. |
+
+The configuration probe runs the preserved interactive login zsh from the selected
+cwd with process-local `CODEX_RESTORE_NO_AUTO=1`. It starts its own bounded
+app-server process group, performs initialize → initialized → config/read and
+never starts a thread/turn. Ordinary app-server initialization, shell startup,
+state/log creation and recovery SQLite are part of an authorized launch; this
+is **not filesystem-read-only**. A temporary CODEX_SQLITE_HOME alone is not a
+complete DB isolation guarantee. Development exercises only fake config
+transport and synthetic processes in temporary homes.
+
+Supported shell identities are direct binary, exact bundled dispatcher/restore
+bodies and their chains, simple passthrough and a wrapper adding only
+`--no-daemon`. Unknown/profile-changing wrappers and aliases block launch. The
+identity guard rechecks executable/version, HOME/CODEX_HOME/ZDOTDIR, relevant
+functions, restore root identity and selected Python before the actual `codex -C` call;
+restore helper content provenance is checked during preflight only. The guard
+does not add model/API/config overrides or `--no-alt-screen`.
+
+The profile reader requires one live name/GUID and a matching materialized
+`New Bookmarks` entry with explicit Keyboard Map and global `CopySelection=false`.
+Its preference snapshot is not a direct runtime-binding read: a stale external
+plist with the same name/GUID may be indistinguishable; concurrent profile
+changes after preflight are not atomic. Config contents can likewise change
+between inspection and launch; the identity guard is not a lock over settings.
+`session.jobName=codex` alone can describe a helper. Launch success additionally
+requires `session.processTitle` (argv0) and `session.commandLine` to match the
+complete expected invocation: argv0, up to two `--no-daemon` flags contributed
+by supported wrappers, `-C`, cwd and the exact handoff prompt. iTerm joins argv
+with spaces without escaping; comparison uses that representation, not shell
+parsing. Missing/malformed/mismatching evidence remains `created_unverified`.
+These are cached process observations, not proof that the process still lives
+at response time or has accepted the task. A fresh matching ack is separately
+required for receipt; neither observation proves Cmd+C → Cmd+V.
+
+Still required in an isolated Mac account/VM: launch from another agent, inspect
+the profile before interaction, exactly one Codex, fresh request/cwd/thread ack,
+manual copy/paste in ABC and Russian without auto-copy or manual restart, and an
+unchanged neighboring session. Fixture, source and structural checks do not
+replace these observations. This task makes no new CI or live acceptance claim.
+
+## Earlier integration verification
+
 Native migration local verification, 2026-10-23: the exact tested **pre-documentation
 code snapshot** is commit `00232d7bf7f240ab085bac89c17ad7002e659b94`.
 The verification matrix update follows that commit and changes documentation only;
