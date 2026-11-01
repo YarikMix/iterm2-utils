@@ -65,15 +65,42 @@ alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = n
 Фактические результаты handoff/resume и ограничения — в
 [матрице приёмки](docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md).
 
-Из checkout или распакованного релиза, ровно один режим:
+В checkout или распакованном релизе один раз выберите доступный `python3`
+(либо явно выбранный пользователем Python), сохраните его абсолютный
+`sys.executable` и проверьте SDK именно им. Не разыменовывайте symlink virtualenv
+до базового Python и не сохраняйте вместо него shim менеджера окружений:
 
 ```sh
-python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
-python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --resume SESSION_UUID --json
+launch_python="$(python3 -c 'import os, sys; p = sys.executable; assert os.path.isabs(p); print(p)')" &&
+"$launch_python" -c 'import sys; assert sys.version_info >= (3, 11); import iterm2; print(sys.executable)' &&
+"$launch_python" -m iterm2_utils launch-codex --help
+```
+
+При ошибке остановитесь до создания вкладки и сообщите выбранный Python и
+недостающий prerequisite. Каждая внешняя проверка ограничена 10 секундами средствами
+вызывающего инструмента. В отдельных tool-вызовах передавайте сохранённый абсолютный
+путь заново: shell-переменные между ними не сохраняются. При смене cwd/PATH повторите
+проверку импорта и help тем же Python в контексте запуска. Установка SDK по явной
+просьбе пользователя — отдельное действие с повторной проверкой после установки.
+
+Затем тем же Python выполните ровно один режим:
+
+```sh
+"$launch_python" -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
+"$launch_python" -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --resume SESSION_UUID --json
 ```
 
 `--window`, `--profile`, `--cwd` обязательны; ровно один из `--handoff` / `--resume`.
-Окно выбирается по явному ID; активная вкладка не используется как fallback.
+CLI получает конкретный ID окна. Скилл выбирает его по приоритету: явное указание
+пользователя, затем согласованная привязка родительской сессии, затем единственное
+окно полного валидного API-инвентаря, если runtime ID родителя отсутствует или не
+найден. В последнем случае вопрос не нужен. При нескольких окнах без установленного
+родителя или противоречащей привязке требуется уточнение; ноль окон и ошибка API
+блокируют выбор. Недоступное явно выбранное окно не заменяется другим автоматически.
+Фокус, название вкладки и скриншот не определяют цель. Перед запуском выбранный ID
+перепроверяется; для выбора по единственности должно оставаться ровно то же окно.
+Появилось второе — уточните выбор, цель исчезла — остановите попытку без подмены.
+Это повторная проверка, не атомарная защита от конкурентного изменения окон.
 `cwd` — существующий абсолютный каталог, `handoff` — читаемый обычный файл по
 абсолютному пути, не symlink. Для нового поручения навык готовит уникальные
 handoff/ack и отдельно проверяет свежее подтверждение по
