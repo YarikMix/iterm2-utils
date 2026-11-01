@@ -302,9 +302,9 @@ remotely; use a fresh tab or explicitly restart zsh to load the updated hook.
 Uninstall does not reset or restart existing tabs. Raw native evidence, screenshots
 and personal paths remain private and are excluded from the release.
 
-## Branded repository icons — 2026-11-01, acceptance pending
+## Branded repository icons — 2026-11-01, historical acceptance
 
-Current delivery has nine builtin names: `ios`, `android`, `kotlett`, `ios-mail`,
+At that checkpoint, delivery had nine builtin names: `ios`, `android`, `kotlett`, `ios-mail`,
 `ios-cloud`, `android-mail`, `android-cloud`, `chrome-mail`, `chrome-cloud`.
 The four mobile names are preserved with updated branded artwork; base ios,
 android and kotlett images are unchanged. Six composites use variant B: larger
@@ -331,3 +331,30 @@ Actual theme switching, a fresh Codex/APS run and a new restore-picker run were
 not repeated for this artwork-only change; directory/observer behavior is unchanged.
 Running shells require a fresh tab or an explicit `exec zsh` to load updated hooks;
 working user tabs are not restarted automatically.
+
+
+## Apple iOS artwork — 2026-11-02, scoped acceptance verified
+
+Current delivery keeps all nine builtin names and18 asset files. Only `ios`,
+`ios-mail` and `ios-cloud` replace the former phone with light Apple `#E6F4FF`,
+with preserved aspect ratio, leaf and bite. Variant B and both existing74×74
+service badges remain unchanged, as do the other six pairs, seven selected rules
+and cd/APS/reset behavior. Apple artwork belongs to Apple Inc.; public source,
+extracted SVG hash and crop/recolor are recorded in
+[THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Earlier rows are historical
+evidence for the previous artwork and do not establish Apple acceptance.
+
+| Apple verification scope | Status |
+| --- | --- |
+| Full automated gate, source/skill/export and archive verification | PASS:578 tests (577 passed,1 filesystem skip), appearance shell22, restore37, dispatcher PASS; sources27, skills2, export135; archive135 unique regular entries,135 byte comparisons and basename-only checksum verified |
+| Selected appearance-only install, seven rules/order/colors and asset bytes | PASS after clean task and whole-branch reviews: dry-run/install exit0 without a new JSON; config hash/order/colors and selection preserved,18 installed assets byte-identical, pending0 |
+| Native normal-size Apple and both badges, subdirectories/outside reset and neighboring control | PASS on iTerm2 3.7.6: both iOS service pairs visible in the existing dark theme;10 profile checkpoints cover initial outside, ordinary cd into both roots/subdirectories and reset; neighboring owned outside control unchanged; exact-window screenshots inspected; all3 owned sessions closed, pre-existing sessions preserved |
+
+Standalone `ios` was verified through asset tests and the dark-background
+contact sheet at128/24/18px, without adding a personal rule. The other12 asset
+files and both service subtrees remain identical to the previous artwork base.
+Actual theme switching and fresh Codex/APS/restore execution were not repeated
+for this asset-only change; earlier rows retain their historical scope. Existing
+notification-policy/hook diagnostics were identical before and after the selected
+install and were not changed. Working user tabs were not restarted; a fresh tab
+loads the updated runtime. Private paths and screenshots are excluded from export.
