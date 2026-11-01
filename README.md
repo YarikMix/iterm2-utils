@@ -128,7 +128,7 @@ python3 -m iterm2_utils doctor --json
 | `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
 | `shell` | Штатные отметки команд и навигация zsh в iTerm2 | — |
 | `shortcuts` | Только выбранные сочетания в профиле агента | Проверенная совместимость для Alt+Enter |
-| `appearance` | Цвет и составная иконка своей вкладки при старте shell/Codex; только Codex | Выбранный Python 3.11+ с SDK `iterm2`, Python API/разрешение |
+| `appearance` | Цвет и составная иконка своей вкладки при старте shell, обычном `cd` и запуске Codex; только Codex | Выбранный Python 3.11+ с SDK `iterm2`, Python API/разрешение |
 
 Зависимости выбранных функций нужно перечислить до установки через существующий
 пакетный менеджер. CLI не ставит отсутствующие агенты/Peekaboo автоматически.
@@ -139,11 +139,15 @@ python3 -m iterm2_utils doctor --json
 `--features appearance --appearance-config /path/to/rules.json` в plan/install.
 Правила задают абсолютный root, `#RRGGBB` и одно из семи встроенных имён либо свой
 PNG. Исходные JSON/PNG и checkout runtime после установки не нужны. Bootstrap
-appearance не включает; обычный `cd` оформление не меняет. Перед установкой
+appearance не включает. Обычный `cd` в зарегистрированный корень или подкаталог
+меняет пару, выход из всех корней отключает Tab Color и скрывает custom icon,
+учитывая base/light/dark варианты без назначения «дефолтного» RGB. Это обновление
+существующего `appearance`, без нового флага или схемы JSON. Перед установкой
 проверьте SDK `iterm2` именно в выбранном Python; `ITERM2_UTILS_PYTHON` выбирает
 абсолютный путь существующего интерпретатора. `appearance_api` остаётся pending
-до успешного read-only reconcile собственной сессии. APS/темы/читаемость значков
-пока live pending; API connectivity этого не подтверждает. Полный порядок
+до успешного read-only reconcile собственной сессии. Новые cd/reset, APS,
+темы и читаемость значков требуют отдельной live-приёмки;
+API connectivity этого не подтверждает. Полный порядок
 plan/install/doctor/update/uninstall и JSON schema — в связанном руководстве.
 
 Новая установка выбранного `status` для Codex использует штатный `cc-status --agent

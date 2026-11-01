@@ -2,15 +2,15 @@
 function _iterm2_utils_appearance {
   emulate -L zsh
   unsetopt bgnice
-  [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app ]] || return 0
+  [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app && -z ${TMUX-} ]] || return 0
   [[ -n ${ITERM2_UTILS_PYTHON-} && ${ITERM2_UTILS_APPEARANCE_CONFIG-} == /* ]] || return 0
   zmodload zsh/system 2>/dev/null || return 0
   local phase=$1 cwd=$2 fd clean_fd child result discard
   local -a ready_arguments=()
   if [[ $phase == launch ]]; then
     ready_arguments=(--ready-fd 3)
-    typeset -gi _iterm2_utils_appearance_sequence=$(( ${_iterm2_utils_appearance_sequence:-0} + 1 ))
-    typeset -g _iterm2_utils_appearance_launch_id="$sysparams[pid]-$_iterm2_utils_appearance_sequence"
+    typeset -gi +x _iterm2_utils_appearance_sequence=$(( ${_iterm2_utils_appearance_sequence:-0} + 1 ))
+    typeset -g +x _iterm2_utils_appearance_launch_id="$sysparams[pid]-$_iterm2_utils_appearance_sequence"
   fi
   if [[ $phase != shell && ${_iterm2_utils_appearance_launch_id-} == "$sysparams[pid]-"* ]]; then
     ready_arguments+=(--launch-id "$_iterm2_utils_appearance_launch_id")
@@ -44,9 +44,14 @@ function _iterm2_utils_appearance {
     [[ $phase != launch ]] || read -r discard <&$fd || true
     # The read end must not be inherited by Codex or nested external shells.
     sysopen -r -o cloexec -u clean_fd "/dev/fd/$fd" 2>/dev/null || return 0
-    typeset -g _iterm2_utils_appearance_owner=$sysparams[pid]
-    typeset -g _iterm2_utils_appearance_pid=$child
-    typeset -g _iterm2_utils_appearance_fd=$clean_fd
+    typeset -g +x _iterm2_utils_appearance_owner=$sysparams[pid]
+    typeset -g +x _iterm2_utils_appearance_pid=$child
+    typeset -g +x _iterm2_utils_appearance_fd=$clean_fd
+    if [[ $phase == shell ]]; then
+      # A fresh child shell must not race this shell's pending assignment/reset.
+      sysread -i "$fd" discard 2>/dev/null && result=0 || result=$?
+      (( result == 5 )) || return 0
+    fi
     ready=1
   } always {
     if (( ! ready )); then
@@ -68,8 +73,22 @@ function _iterm2_utils_appearance {
   return 0
 }
 
-typeset -g _iterm2_utils_appearance_root=${${(%):-%x}:A:h}
-if [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app && ${_iterm2_utils_appearance_bootstrapped-0} != 1 ]]; then
-  typeset -g _iterm2_utils_appearance_bootstrapped=1
+function _iterm2_utils_appearance_chpwd {
+  emulate -L zsh
+  [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app && -z ${TMUX-} &&
+     ${_iterm2_utils_appearance_hook_owner-} == $sysparams[pid] ]] || return 0
   _iterm2_utils_appearance shell "$(builtin pwd -P)"
-fi
+  return 0
+}
+
+() {
+  emulate -L zsh
+  typeset -g +x _iterm2_utils_appearance_root=${${(%):-%x}:A:h}
+  if [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app && -z ${TMUX-} && ${_iterm2_utils_appearance_bootstrapped-0} != 1 ]] && zmodload zsh/system 2>/dev/null; then
+    typeset -g +x _iterm2_utils_appearance_bootstrapped=1
+    typeset -g +x _iterm2_utils_appearance_hook_owner=$sysparams[pid]
+    autoload -Uz add-zsh-hook
+    add-zsh-hook chpwd _iterm2_utils_appearance_chpwd
+    _iterm2_utils_appearance_chpwd
+  fi
+}

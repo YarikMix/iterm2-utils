@@ -30,6 +30,9 @@ No private skills, corporate services or workspace framework are required.
    on first plan/install; validate the JSON and selected Python SDK prerequisite
    from [features](references/features.md). Preserve that explicit path for the
    matching dry-run/install; never publish its contents or personal roots.
+   Existing appearance also follows ordinary cd: registered roots/subdirectories
+   apply their pair; outside resets Tab Color/custom icon, including light/dark.
+   No new flag/schema is needed. Preserve foreign shell hooks and settings.
    Use separate calls when agents want different features/shortcuts;
    inspect `selection.agent_features` and `agent_shortcuts`. Resolve conflicts
    explicitly; preserve foreign settings and MCP. For `foreign_notifications`,
@@ -50,6 +53,9 @@ No private skills, corporate services or workspace framework are required.
    then verify again; the user's confirmation alone cannot mark ready. New hooks
    or MCP may require the colleague to start a new agent session. Keep pending
    findings when verification fails and explain the remaining step.
+   For appearance verify cd between roots/subdirectories and outside, rapid cd
+   and Codex return under APS in owned temporary tabs; follow ui.md. Fixture and
+   read-only API success do not establish visual acceptance.
 
 For maintenance and dependency failures read
 [troubleshooting](references/troubleshooting.md). Summarize what actually changed,

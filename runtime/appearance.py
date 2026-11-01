@@ -133,6 +133,15 @@ class _API:
         profile.set_custom_icon_path(icon)
         await session.async_set_profile_properties(profile)
 
+    async def reset(self, session):
+        profile = self.sdk.LocalWriteOnlyProfile()
+        profile.set_use_tab_color(False)
+        profile.set_use_tab_color_light(False)
+        profile.set_use_tab_color_dark(False)
+        profile.set_icon_mode(self.sdk.IconMode.NONE)
+        profile.set_custom_icon_path('')
+        await session.async_set_profile_properties(profile)
+
     async def snapshot(self, session):
         profile = await session.async_get_profile()
         values = profile.local_write_only_copy.values
@@ -141,6 +150,9 @@ class _API:
     async def save_snapshot(self, session, properties, launch_id):
         await session.async_set_variable(_SNAPSHOT_VARIABLE, json.dumps(
             {'launch_id': launch_id, 'properties': properties}))
+
+    async def invalidate_snapshot(self, session):
+        await session.async_set_variable(_SNAPSHOT_VARIABLE, None)
 
     async def _read_snapshot_record(self, session, launch_id):
         value = await session.async_get_variable(_SNAPSHOT_VARIABLE)
@@ -170,6 +182,13 @@ class _API:
             if await self.take_snapshot(session, launch_id) is None:
                 return False
             await session.async_set_profile_properties(self.sdk.LocalWriteOnlyProfile(properties))
+            return True
+
+    async def write_if_current(self, session, color, icon, launch_id):
+        async with self.sdk.Transaction(self.connection):
+            if await self._read_snapshot_record(session, launch_id) is None:
+                return False
+            await self.write(session, color, icon)
             return True
 
     @asynccontextmanager
@@ -219,10 +238,17 @@ async def _operate(request):
             async def write():
                 if request.get('preserve'):
                     return await api.restore(session, preserved, request.get('launch_id'))
-                await api.write(session, request['color'], request['icon'])
+                if phase != 'shell':
+                    return await api.write_if_current(session, request['color'], request['icon'], request.get('launch_id'))
+                if request.get('reset'):
+                    await api.reset(session)
+                else:
+                    await api.write(session, request['color'], request['icon'])
                 return True
 
             if phase == 'shell':
+                # A nested shell may share the session with a parent's return observer.
+                await api.invalidate_snapshot(session)
                 await write()
                 return 'applied'
             # The dispatcher must terminate AND reap the previous helper first.
@@ -378,8 +404,9 @@ def _run_request(request):
             rule = select_rule(load_rules(Path(request['config'])), Path(request['cwd']))
             if rule is None:
                 if request['phase'] == 'shell':
-                    return 'ignored'
-                request = {**request, 'preserve': True}
+                    request = {**request, 'reset': True}
+                else:
+                    request = {**request, 'preserve': True}
             else:
                 icon = (Path(__file__).parent / 'assets' / 'appearance' / (rule['icon'] + '.png')
                         if rule['icon'] in BUILTIN_ICONS else Path(rule['icon']))

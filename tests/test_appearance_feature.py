@@ -77,6 +77,8 @@ class AppearanceTests(LifecycleFixture):
         self.assertTrue(any(f.state=='missing_dependency' for f in result.findings));self.assertEqual(self.snapshot(),before)
 
     def test_explicit_replacement_and_partial_uninstall_keep_other_consumers(self):
+        foreign = 'function chpwd { print -r -- foreign-directory-hook; }\n# user shell text\n'
+        self.context.paths.zshrc.write_text(foreign)
         self.assertSuccess(self.install('appearance','restore','status'))
         self.context.appearance_config=None
         self.assertSuccess(self.install('shell',agents=('claude',)))
@@ -86,6 +88,7 @@ class AppearanceTests(LifecycleFixture):
         self.context.appearance_config=None
         self.assertSuccess(lifecycle.uninstall(self.context,{'appearance'},self.runner))
         text=self.context.paths.zshrc.read_text()
+        self.assertIn(foreign,text)
         self.assertNotIn('appearance.zsh',text);self.assertIn('codex.zsh',text);self.assertIn('iterm2_shell_integration.zsh',text)
         self.assertTrue((self.context.paths.data/'current/hook.py').exists())
         self.assertFalse(list((self.context.paths.data/'appearance/icons').glob('*.png')))
