@@ -9,17 +9,39 @@ Create at most one tab. Verify launch separately from task receipt or restored
 history. An internal-subagent or Claude Code request does not authorize a Codex tab.
 
 1. Use a verified checkout or unpacked release of
-   https://github.com/YarikMix/iterm2-utils; read README and run
-   `python3 -m iterm2_utils launch-codex --help` there. Python **3.11+** must have
-   the official `iterm2` SDK importable in that same interpreter; the iTerm2 API
-   must be accessible. Live-tested SDK version: **pending**. Missing SDK/API or
-   denied access blocks launch; no automatic installation or environment search.
-2. Map the explicit parent session UUID from runtime metadata (e.g. UUID portion
-   of `ITERM_SESSION_ID`) using the selected bundle's verified `it2`
-   `session list --json`, `tab list --json`, `window list --json`. Record its
-   unique tab/window IDs. Preserve an explicitly selected window; never choose
-   active/frontmost or guess by recency. Ambiguous/missing identity requires an
-   explicit target before launch.
+   https://github.com/YarikMix/iterm2-utils; read README there. Select available
+   `python3` or the user's explicitly chosen Python and save its absolute
+   `sys.executable`. Preserve that path, including virtualenv symlinks; do not
+   resolve it to a base interpreter or keep a PATH shim instead. For `python3`:
+
+   ```sh
+   launch_python="$(python3 -c 'import os, sys; p = sys.executable; assert os.path.isabs(p); print(p)')" &&
+   "$launch_python" -c 'import sys; assert sys.version_info >= (3, 11); import iterm2; print(sys.executable)' &&
+   "$launch_python" -m iterm2_utils launch-codex --help
+   ```
+
+   Require successful version/import/help checks before continuing; bound each
+   external operation to 10 seconds using the calling tool. Use this exact path
+   for checks and launch. Separate tool calls must pass the saved path explicitly
+   again; shell variables do not persist. If cwd/PATH changes, recheck import/help
+   with the saved Python in the invocation context, without selecting another.
+   Python **3.11+** and accessible iTerm2 API are required. Live-tested SDK: **2.23**.
+   Missing SDK/API or denied access blocks launch; report the selected Python and
+   missing prerequisite. No automatic installation or environment search. An
+   explicitly authorized installation is separate; recheck afterward.
+2. Select the window from successful, complete, valid inventories using the
+   selected bundle's verified `it2`: `session list --json`, `tab list --json`,
+   `window list --json`, in this priority order:
+   - Preserve the user's explicit target; verify its unique window ID. If missing
+     or ambiguous, ask for a target instead of substituting another window.
+   - Otherwise map the parent UUID from runtime metadata (e.g. UUID portion of
+     `ITERM_SESSION_ID`) to consistent unique session/tab/window IDs.
+   - If the runtime ID is absent or not found, and the complete window inventory
+     contains exactly one window with a nonempty ID, use it **without asking**.
+     Record that selection basis; do not invent a parent mapping.
+   - Multiple windows without a mapped parent, or contradictory parent mappings,
+     require an explicit target. Zero windows or failed/invalid inventories block
+     selection. Never infer uniqueness from a screenshot, focus, title or recency.
 3. Read `it2 profile list --json` and `profile show NAME --json`; record unique
    name/GUID. CLI also checks materialized Cmd+C/Ctrl+C EN/RU, CopySelection and
    effective Codex/login-shell compatibility. Preserve foreign profiles. For
@@ -31,12 +53,17 @@ history. An internal-subagent or Claude Code request does not authorize a Codex 
      relevant history, exact UUID and confirmed transcript cwd. If already open,
      report its tab; create a duplicate only on explicit request. No new prompt
      or ack is part of resume.
-5. Warn that a new tab will appear. Invoke **once**, with values passed as
+5. Recheck the selected window ID before invoking CLI. If selected only because
+   it was the sole window, the complete inventory must still contain exactly that
+   window. A second window requires clarification; a vanished target blocks this
+   attempt without automatic substitution. Rechecking is not an atomic guarantee
+   against concurrent changes; CLI also validates the exact target before create.
+   Warn that a new tab will appear. Invoke **once**, with values passed as
    individual argv elements or correctly shell-quoted:
 
    ```sh
-   python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
-   python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --resume SESSION_UUID --json
+   "$launch_python" -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
+   "$launch_python" -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --resume SESSION_UUID --json
    ```
 
    Choose exactly one line. The SDK supplies custom command **at tab creation**;
