@@ -33,6 +33,22 @@ class ExportTests(unittest.TestCase):
                           (*check_export.EXPORT_FILES, 'runtime/native_status.py')):
             self.assertIn('Duplicate export path: runtime/native_status.py', check_export.check(ROOT))
 
+    def test_appearance_delivery_contract(self):
+        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud'}
+        assets = {f'runtime/assets/appearance/{name}.{ext}' for name in names for ext in ('png', 'svg')}
+        self.assertTrue(assets <= set(check_export.EXPORT_FILES))
+        self.assertTrue({'runtime/appearance.py', 'runtime/appearance.zsh', 'iterm2_utils/features/appearance.py',
+                         'docs/repo-appearance.md', 'tests/test_appearance_shell.zsh',
+                         'tests/test_appearance_rules.py', 'tests/test_appearance_runtime.py',
+                         'tests/test_appearance_feature.py'} <= set(check_export.EXPORT_FILES))
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp); repo = self.fixture(root)
+            target = repo/'runtime/assets/appearance/ios.png'
+            target.unlink()
+            with self.assertRaises(ValueError): build_release.build(repo, root/'missing')
+            target.symlink_to(ROOT/'runtime/assets/appearance/ios.png')
+            with self.assertRaises(ValueError): build_release.build(repo, root/'symlink')
+
     def fixture(self, folder):
         repo = folder/'repo'
         for name in check_export.EXPORT_FILES:
@@ -48,6 +64,8 @@ class ExportTests(unittest.TestCase):
                          'runtime/.env.py', 'runtime/receipt.json', 'runtime/backup.py',
                          'logs/transcript.jsonl', 'auth/token', 'runtime/__pycache__/secret.pyc',
                          'runtime/raw-event.json', 'runtime/cc-status', 'runtime/it2',
+                         'runtime/assets/appearance/foreign.png', 'source-rules.json', 'config/appearance.json',
+                         'data/receipt.json',
                          'Applications/iTerm.app/Contents/Resources/utilities/cc-status',
                          'Applications/iTerm.app/Contents/Resources/utilities/it2'):
                 path = repo/name; path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,6 +79,8 @@ class ExportTests(unittest.TestCase):
                 self.assertEqual(len(names), len(members))
                 self.assertIn('skills/iterm2-setup/SKILL.md', names)
                 self.assertIn('vendor/codex_status/LICENSE', names)
+                self.assertIn('runtime/assets/appearance/android-mail.png', names)
+                self.assertIn('runtime/appearance.py', names)
                 for member in members:
                     self.assertTrue(member.isfile())
                     self.assertNotIn((b'PRIVATE_' + b'FIXTURE_MARKER'), tar.extractfile(member).read())
@@ -155,7 +175,7 @@ assert not check(pathlib.Path.cwd())
             repo.rename(root/'checkout-unavailable')
             result = self.run_python(extracted, root/'home', '-m', 'unittest',
                                     'tests.test_cli', 'tests.test_agent_workflow',
-                                    'tests.test_skill_install', 'tests.test_lifecycle', '-v')
+                                    'tests.test_skill_install', 'tests.test_lifecycle', 'tests.test_payload', '-v')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
             # Runtime installed into a fixture must survive removal of its extracted source too.
             script = r'''import json, os, pathlib, subprocess, sys

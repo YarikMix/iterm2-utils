@@ -37,3 +37,20 @@ Claude's menu checkpoint to Codex. New hooks still require human trust and may
 need a fresh session. Leave independent notifications/restore unselected unless
 requested. A successful save or API read does not verify event delivery; Codex
 0.163.0 cannot supply StopFailure for automatic API-error status.
+
+
+For selected appearance, the pending code is **`appearance_api`**. Use the same
+Settings → General → Magic → Enable Python API menu and let the human authorize
+the helper. Then run `python3 -m iterm2_utils doctor --live --json` and
+`python3 -m iterm2_utils reconcile --step appearance_api --json` from a valid
+explicit local iTerm2 session. This verifier reads API access without changing
+color/icon and never chooses the active tab. Offline doctor cannot clear pending;
+API-ready is not evidence for rendering or APS transitions.
+
+Before opening your own temporary tabs, warn that they will appear. After code
+review and authorized appearance installation, verify shell/Codex start,
+resume/fork/restore, existing APS on entry/exit, ordinary cd, no-match and an
+unavailable target; check icon pairs at normal size in the actual themes. Do not
+change neighboring tabs or the Default profile. Close only your own temporary
+tabs and restore only temporary settings you changed. Record actual fixture/live
+results; keep unperformed APS/theme/readability checks pending.

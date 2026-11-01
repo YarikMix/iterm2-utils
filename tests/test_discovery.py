@@ -12,6 +12,26 @@ from iterm2_utils import discovery
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_sdk_import_uses_selected_python_and_does_not_connect(self):
+        for available in (False,True):
+            with self.subTest(available=available), Fixture() as f:
+                selected=f.bin/'selected-python'
+                run=f.runner.run
+                def probe(argv,**kwargs):
+                    result=run(argv,**kwargs)
+                    if argv[0]==str(selected):
+                        return subprocess.CompletedProcess(argv,0 if available or argv[1:]==['--version'] else 1,
+                            'Python 3.13.7' if argv[1:]==['--version'] else 'iterm2-sdk-ready\n' if available else 'PRIVATE','')
+                    return result
+                before=f.snapshot()
+                with patch.dict(os.environ,{'ITERM2_UTILS_PYTHON':str(selected)}), patch.object(f.runner,'run',side_effect=probe):
+                    context=discover(resolve_paths(),f.runner)
+                self.assertEqual('python:iterm2' in context.capabilities,available)
+                self.assertEqual(context.executables['python3'],selected)
+                self.assertTrue(any(call[0][0]==str(selected) and 'import iterm2' in str(call[0]) for call in f.runner.calls))
+                self.assertNotIn('PRIVATE',repr(context));self.assertEqual(f.snapshot(),before)
+                self.assertNotIn('--probe',repr(f.runner.calls))
+
     def test_codex_prerelease_and_build_tokens_do_not_inherit_stable_capabilities(self):
         for release in ('0.163.0', '0.164.0'):
             for suffix in ('-alpha.1', '-dev', '+build.7', '-alpha.1+build.7'):
@@ -117,7 +137,7 @@ class DiscoveryTests(unittest.TestCase):
                 before = f.snapshot()
                 discover(paths, f.runner)
                 self.assertEqual(f.snapshot(), before)
-                self.assertFalse(any('-c' in call[0] for call in f.runner.calls))
+                self.assertFalse(any('-c' in call[0] and Path(call[0][0]).name != 'python3' for call in f.runner.calls))
 
     def test_invalid_app_is_not_accepted(self):
         with Fixture() as f:

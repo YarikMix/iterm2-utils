@@ -4,7 +4,8 @@
 [Матрица совместимости и непроверенные live-сценарии](docs/compatibility.md).
 
 Выборочная настройка iTerm2 для Codex CLI и Claude Code: ручное копирование,
-статусы, уведомления, восстановление диалогов, MCP, shell integration и hotkeys.
+статусы, уведомления, восстановление диалогов, MCP, shell integration, hotkeys
+и оформление вкладки по репозиторию.
 Первая версия поддерживает macOS + zsh. Установщик использует Python **3.11+** и
 стандартную библиотеку; корпоративные сервисы и личные файлы автора не нужны.
 
@@ -66,11 +67,23 @@ python3 -m iterm2_utils doctor --json
 | `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
 | `shell` | Штатные отметки команд и навигация zsh в iTerm2 | — |
 | `shortcuts` | Только выбранные сочетания в профиле агента | Проверенная совместимость для Alt+Enter |
+| `appearance` | Цвет и составная иконка своей вкладки при старте shell/Codex; только Codex | Выбранный Python 3.11+ с SDK `iterm2`, Python API/разрешение |
 
 Зависимости выбранных функций нужно перечислить до установки через существующий
 пакетный менеджер. CLI не ставит отсутствующие агенты/Peekaboo автоматически.
 Отсутствие Python 3.11+ — prerequisite установщика, а не повод ставить второго
 агента. Подробности: [features](skills/iterm2-setup/references/features.md).
+
+Восьмая опция [`appearance`](docs/repo-appearance.md) выбирается явно через
+`--features appearance --appearance-config /path/to/rules.json` в plan/install.
+Правила задают абсолютный root, `#RRGGBB` и одно из семи встроенных имён либо свой
+PNG. Исходные JSON/PNG и checkout runtime после установки не нужны. Bootstrap
+appearance не включает; обычный `cd` оформление не меняет. Перед установкой
+проверьте SDK `iterm2` именно в выбранном Python; `ITERM2_UTILS_PYTHON` выбирает
+абсолютный путь существующего интерпретатора. `appearance_api` остаётся pending
+до успешного read-only reconcile собственной сессии. APS/темы/читаемость значков
+пока live pending; API connectivity этого не подтверждает. Полный порядок
+plan/install/doctor/update/uninstall и JSON schema — в связанном руководстве.
 
 Новая установка выбранного `status` для Codex использует штатный `cc-status --agent
 codex` из проверенного bundle iTerm2 3.7.6+; утилиты приложения не копируются в
@@ -167,6 +180,7 @@ references. Это не живая приёмка и не проверка по�
 ```sh
 python3 -m unittest discover -s tests -t . -v
 /bin/zsh tests/test_codex_shell.zsh
+/bin/zsh tests/test_appearance_shell.zsh
 /bin/zsh tests/restore/test_codex.zsh
 python3 tools/check_sources.py
 python3 tools/check_skill.py

@@ -76,3 +76,28 @@ agree. A malformed/conflicting source or nonempty TMUX leaves the probe pending,
 without guessing the active tab. Use an ordinary local iTerm2 panel; tmux,
 control mode and SSH need separate acceptance. Details/payload are not printed.
 The accepted API states are empty, idle, working, waiting, done and error.
+
+
+Appearance: `missing_dependency` can mean the selected runtime Python cannot
+import `iterm2`, even if another interpreter can. Choose an existing Python 3.11+
+with that SDK using absolute `ITERM2_UTILS_PYTHON` on setup/maintenance commands.
+`appearance_config_required` needs a local rules JSON on the first plan/install;
+`--appearance-config` is accepted only there with selected appearance. Later
+install/update use installed rules and copied PNGs. Resolve invalid JSON/color,
+unknown builtin, missing/corrupt PNG and edited owned files before retrying;
+never overwrite the user's edits. New explicit JSON replaces the owned rules,
+not arbitrary foreign config fields.
+
+`appearance_api` pending is separate from SDK import and ready files. Offline
+doctor cannot clear it; live doctor is read-only. Enable/authorize Python API as
+in ui.md, then `reconcile --step appearance_api --json` in an ordinary iTerm2
+session with valid matching UUID sources. No active-tab fallback, tmux bypass or
+API/TCC automation workaround. A successful probe proves access only. If a
+repository is unavailable, leave it unavailable; do not create a substitute root.
+Visual APS/readability acceptance stays pending until actually checked.
+
+For appearance maintenance use `update --dry-run --json`, then `update --json`.
+Selective removal: `uninstall --agent codex --features appearance --dry-run --json`,
+then omit `--dry-run`. Existing tabs can retain their color/icon until closed;
+shared runtime remains for other selected features. Do not reset open tabs or
+remove unowned resources to make diagnostics look clean.

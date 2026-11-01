@@ -67,15 +67,24 @@ function codex() {
     command codex "$@"
     return $?
   fi
+  local cwd=$(builtin pwd -P) result=0
+  local -a arguments=("$@")
   if [[ ${ITERM2_UTILS_CODEX_NO_DAEMON:-0} == 1 ]]; then
     for arg in "$@"; do
-      if [[ $arg == --no-daemon ]]; then
-        command codex "$@"
-        return $?
-      fi
+      [[ $arg == --no-daemon ]] && break
     done
-    command codex --no-daemon "$@"
-  else
-    command codex "$@"
+    [[ $arg == --no-daemon ]] || arguments=(--no-daemon "${arguments[@]}")
   fi
+  if (( ${+functions[_iterm2_utils_appearance]} )); then
+    _iterm2_utils_appearance launch "$cwd"
+  fi
+  if command codex "${arguments[@]}"; then
+    result=0
+  else
+    result=$?
+  fi
+  if (( ${+functions[_iterm2_utils_appearance]} )); then
+    _iterm2_utils_appearance return "$cwd"
+  fi
+  return $result
 }

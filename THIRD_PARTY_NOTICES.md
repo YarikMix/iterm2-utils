@@ -59,3 +59,17 @@ service commands after global options work without selecting restore. The source
 ref/original hash and bundled hashes remain separate in sources.lock.json. Local
 port entries explicitly link this repository's LICENSE and these notices; they
 do not assign a license to the legacy repository.
+
+`runtime/assets/appearance/` contains seven original vector drawings created for
+this repository: `ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`,
+`android-mail` and `android-cloud`. Their SVG sources and rasterized transparent
+PNG counterparts are distributed under this repository's MIT license (LICENSE).
+PNG files were rendered from the accompanying SVG with librsvg `rsvg-convert`;
+the renderer is not bundled. The phone, robot, cutlet, envelope and cloud are
+generic illustrative symbols, not copied official product or brand logos.
+No external artwork or downloaded images are included in these assets.
+The seven named PNG/SVG pairs and this attribution ship in immutable installed
+runtime releases and the public archive; no renderer or image download is needed
+for installation or shell startup. The shared `runtime/codex.zsh` adaptation also
+adds optional appearance launch/return phases without changing its pinned source
+identity or the original restore classifier attribution above.

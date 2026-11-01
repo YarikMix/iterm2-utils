@@ -116,6 +116,10 @@ def discover(paths: Paths, runner: Runner, *, agents: frozenset[str] = frozenset
             # Approval filtering independently verified in both exact releases.
             if versions[name] in {'0.163.0', '0.164.0'}:
                 capabilities.add('codex:approval-notifications')
+    if 'python3' in executables and 'codex' in agents:
+        output = _probe(runner, executables['python3'], ['-c', 'import iterm2; print("iterm2-sdk-ready")'])
+        if output.strip() == 'iterm2-sdk-ready':
+            capabilities.add('python:iterm2')
     osascript = shutil.which('osascript')
     if osascript:
         executables['osascript'] = Path(osascript).absolute()
@@ -501,3 +505,19 @@ def native_status_findings(context: Context, selection) -> list:
                f'Codex {version}: StopFailure error-event source is unverified; automatic native error is not supported by this adapter.')
     findings.append(Finding('status','codex','codex_error_event','limited',message))
     return findings
+
+
+def live_appearance(context, runner):
+    """Read-only explicit-session access probe; never verifies rendered appearance."""
+    from .models import Finding
+    ready = False
+    if 'python:iterm2' in context.capabilities and 'python3' in context.executables:
+        helper = context.paths.data/'current/appearance.py'
+        try:
+            result = runner.run([str(context.executables['python3']), str(helper), '--probe'], timeout=5)
+            ready = result.returncode == 0 and result.stdout.strip() == 'ready'
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            pass
+    return Finding('appearance','codex','appearance_api','ready' if ready else 'pending_ui',
+        'Explicit session API access verified; rendered color and icon remain unverified.' if ready else
+        'Explicit session API access is not verified; enable and authorize the Python API, then retry in an iTerm2 session.')
