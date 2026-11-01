@@ -17,6 +17,10 @@ ITERM_PROCESS = "/Applications/iTerm.app/Contents/MacOS/iTerm2"
 class UnknownTabOutcome(Exception):
     """The create request may have reached iTerm; inspection is required."""
 
+    def __init__(self, message: str, *, tab_id: str | None = None):
+        super().__init__(message)
+        self.tab_id = tab_id
+
 
 class ITerm:
     def __init__(self, executable: str = IT2_DEFAULT, ps: str = "ps", timeout: float = 3.0):
@@ -126,28 +130,43 @@ class ITerm:
             raise ValueError("missing tab sessions")
         return result
 
-    def new_tab(self, window_id: str) -> str:
+    def new_tab(self, window_id: str, *, profile: str | None = None,
+                command: str | None = None) -> str:
         window_id = self._id(window_id)
+        for value in (profile, command):
+            if value is not None and (not isinstance(value, str) or not value.strip() or "\0" in value):
+                raise ValueError("invalid iTerm2 profile or command")
         try:
-            return self._created_tab(window_id)
+            return self._created_tab(window_id, profile=profile, command=command)
+        except UnknownTabOutcome:
+            raise
         except Exception as exc:
             raise UnknownTabOutcome("tab creation outcome is unknown") from exc
 
-    def _created_tab(self, window_id):
-        output = self._run([self.executable, "tab", "new", "--window", window_id])
+    def _created_tab(self, window_id: str, *, profile: str | None = None,
+                     command: str | None = None) -> str:
+        arguments = [self.executable, "tab", "new", "--window", window_id]
+        if profile is not None:
+            arguments.extend(["--profile", profile])
+        if command is not None:
+            arguments.extend(["--command", command])
+        output = self._run(arguments)
         match = re.search(r"^Created new tab: (\S+)\s*$", output, re.MULTILINE)
         if not match:
             raise ValueError("iTerm2 did not identify the new tab")
         key = match.group(1)
-        for attempt in range(5):
-            if attempt:
-                time.sleep(0.2)
-            matches = [item for item in self._list("session")
-                       if (key == item.get("tab_id") or key.lower() == str(item.get("id", "")).lower())
-                       and item.get("window_id") == window_id]
-            if len(matches) == 1:
-                return normalize_terminal(self._id(matches[0].get("id")))
-        raise ValueError("cannot find the new iTerm2 session")
+        try:
+            for attempt in range(5):
+                if attempt:
+                    time.sleep(0.2)
+                matches = [item for item in self._list("session")
+                           if (key == item.get("tab_id") or key.lower() == str(item.get("id", "")).lower())
+                           and item.get("window_id") == window_id]
+                if len(matches) == 1:
+                    return normalize_terminal(self._id(matches[0].get("id")))
+            raise ValueError("cannot find the new iTerm2 session")
+        except Exception as exc:
+            raise UnknownTabOutcome("tab creation outcome is unknown", tab_id=key) from exc
 
     def run(self, terminal: str, command: str) -> None:
         self._run([self.executable, "session", "run", command, "-s", normalize_terminal(terminal).upper()])

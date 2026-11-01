@@ -48,6 +48,9 @@ The source runtime contracts, lifecycle timeouts and behavioral vectors are
 preserved. Test imports/entry paths are relocated; iTerm process identification
 accepts the selected installed app path. An uncertain tab-create result now
 retains its reservation and asks for inspection, preventing automatic retries.
+Tab creation also accepts an explicit profile and command as separate arguments,
+validates them before creation, and preserves the returned tab identity when later
+session inspection fails. Legacy restore calls retain their original arguments.
 The local metadata bridge forwards only session_id, cwd, transcript_path and
 hook_event_name transiently; it never persists hook content. Per-file original
 and bundled SHA-256 digests are recorded in sources.lock.json.
