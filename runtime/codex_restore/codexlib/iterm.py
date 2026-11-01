@@ -1,4 +1,5 @@
 """Bounded subprocess access to iTerm2's built-in it2 utility."""
+from __future__ import annotations
 import json
 import os
 import re
