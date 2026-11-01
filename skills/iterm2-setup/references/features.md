@@ -105,8 +105,9 @@ outside immutable runtime; all nine builtins ship offline as transparent 128×12
 PNGs with matching SVG sources. The six Mail/Cloud composites use variant B:
 larger platform, square service badge at bottom right. Mail is white @ on blue,
 Cloud is the branded white contour on blue, and web pairs use official full-color
-Chrome. Base ios/android/kotlett images are unchanged; four mobile pair names
-are retained. There is no standalone chrome builtin. THIRD_PARTY_NOTICES.md records
+Chrome. The ios mark is now light Apple #E6F4FF with its leaf and bite; ios-mail
+and ios-cloud retain their existing service badges. Android/kotlett and the other
+pairs are unchanged; four mobile pair names are retained. There is no standalone chrome builtin. THIRD_PARTY_NOTICES.md records
 public sources, transformations and brand ownership separately from MIT code and
 original package illustrations. Runtime survives removal of checkout/original JSON/PNG. Install
 without a new JSON reuses owned rules; explicit new JSON replaces the owned set.
@@ -136,6 +137,9 @@ consumers, and does not reset/restart open tabs. Old custom hash copies remain
 owned until uninstall; an empty config object may remain after removal. New
 generated startup omits appearance source; running shells are not changed remotely.
 
-Branded-image acceptance is separately pending: six composites and unchanged
-Kotlett in a normal-size native tabbar, seven selected rules, subdirectories and
-outside reset. Earlier five-rule live evidence does not establish this acceptance.
+Apple-image acceptance was verified on 2026-11-02 for both iOS service pairs in a
+normal-size native dark-theme tabbar, ordinary cd into roots/subdirectories and
+outside reset. Selected installation preserved all seven rules. Standalone ios
+was checked in asset tests/contact sheets; unchanged pairs retain their historical
+acceptance. Actual theme switching and fresh Codex/APS/restore runs were not repeated
+for this artwork change; see docs/compatibility.md for the precise scope.

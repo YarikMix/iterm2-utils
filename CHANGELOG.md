@@ -16,8 +16,9 @@ changes and other runtime consumers. API authorization stays pending until the
 explicit-session read-only reconcile succeeds. Existing `ios-mail`, `ios-cloud`,
 `android-mail`, `android-cloud` names now use branded Mail/Cloud artwork;
 `chrome-mail` and `chrome-cloud` add the official Chrome mark. The platform stays
-larger with the service badge at bottom right (variant B); base `ios`, `android`
-and `kotlett` assets are unchanged. Transparent 128×128 PNGs and matching SVGs ship
+larger with the service badge at bottom right (variant B). `ios`, `ios-mail` and
+`ios-cloud` now use light Apple `#E6F4FF` with its leaf and bite, preserving the
+existing service badges; `android`, `kotlett` and the other pairs are unchanged. Transparent 128×128 PNGs and matching SVGs ship
 offline in runtime/export. Public-source provenance, transformations and brand
 ownership are recorded in THIRD_PARTY_NOTICES.md; third-party artwork is separate
 from the package's MIT code/original illustrations. Fixture delivery and lifecycle

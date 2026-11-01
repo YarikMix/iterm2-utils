@@ -63,24 +63,31 @@ ref/original hash and bundled hashes remain separate in sources.lock.json. Local
 port entries explicitly link this repository's LICENSE and these notices; they
 do not assign a license to the legacy repository.
 
-`runtime/assets/appearance/` contains nine named SVG/PNG pairs. The generic
-phone (`ios`), robot (`android`) and cutlet (`kotlett`) are original illustrations
+`runtime/assets/appearance/` contains nine named SVG/PNG pairs. The robot (`android`) and cutlet (`kotlett`) are original illustrations
 created for this repository and distributed under its MIT license (LICENSE).
-The six service/platform composites reuse the phone or robot, or the official
+The six service/platform composites reuse the Apple mark or robot, or the official
 Chrome logo, with branded Mail or Cloud artwork from these public sources:
 
 | Artwork | Public upstream SVG | Upstream SHA256 |
 | --- | --- | --- |
+| Apple | https://www.apple.com/ (navigation inline SVG, extracted SVG hash) | `173a4aceb67e416738f3af19eeda9de484cac388914881915dc94e4f6ce77687` |
 | Mail `@` | https://cloud.imgsmail.ru/cloud.mail.ru/hashes/img/portal-header/38ee4afd7a08350c7d70.svg | `8797246440d02769af6ae58cf3fdd90f9ce56858f02098a0dee5a8b659129897` |
 | Cloud | https://cloud.imgsmail.ru/cloud.mail.ru/hashes/img/54cbc3d30f0b1da1d208.svg | `71706ae50083d481d84e172308b858abba2979b2f90dff08d6d2ee0da0ffb333` |
 | Google Chrome | https://www.google.com/chrome/static/images/chrome-logo-m100.svg | `1357dd965397a99cbc937ddd2345a9897d527f7229c8b0f2aeebac97680cc66d` |
 
 Mail and Cloud artwork and marks belong to Mail / VK; Chrome artwork and marks
-belong to Google. These upstream graphics are third-party brand artwork, not
+belong to Google. Apple artwork and marks belong to Apple Inc.; `ios`,
+`ios-mail` and `ios-cloud` derive from this third-party Apple artwork. These upstream graphics are third-party brand artwork, not
 original package drawings, and are not covered by this repository's MIT grant.
 No separate license grant for that artwork is asserted here.
 
-Transformations: only the separate `@` path from the Mail 135×30 wordmark is
+Apple transformation: preserve the upstream path and aspect ratio, crop the
+viewBox to `0 11 14 18` to remove navigation whitespace, and recolor `#E6F4FF`.
+The standalone mark fits the transparent 128×128 canvas; iOS composites place it
+at x=-6,y=-3,width=110,height=118 behind the existing service badges. The hash
+above identifies the extracted SVG, not the full Apple HTML page.
+
+Other transformations: only the separate `@` path from the Mail 135×30 wordmark is
 used (the 0..30 area, without wordmark text), recolored white and placed on a
 rounded `#0077FF` square. Cloud's rounded blue square and white contour, and
 Chrome's colored paths and gradients, are scaled proportionally. Each composite
