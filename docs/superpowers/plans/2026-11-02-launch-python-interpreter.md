@@ -1,6 +1,6 @@
 # Выбор Python и окна для iterm2-launch — план реализации
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Агент использует один проверенный Python и выбирает единственное окно по API без лишнего вопроса при отсутствующем родителе.
 
@@ -64,10 +64,10 @@
 **Consumes:** проверенный исходник Task 1 и фактический отчёт.
 **Produces:** установленный скилл, совпадающий с исходником и штатным receipt.
 
-- [ ] Проверенным Python выполнить `-m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex --dry-run --json`. Ожидается отсутствие конфликта; при чужих изменениях не обходить CAS.
-- [ ] Тем же Python выполнить команду без `--dry-run`. Сравнить все 3 установленных Markdown-файла с исходником побайтово, проверить соответствие receipt штатной схеме bootstrap. Не менять другую установку/настройки.
-- [ ] Отразить итог в acceptance и чекбоксах плана, проверить `git diff --check`, оформить только относящиеся изменения в ветке `docs/launch-python-interpreter`. При SDD соблюдать принятый режим коммитов его workflow; не публиковать приватные артефакты.
-- [ ] Сообщить пользователю результат и границы: обновлённые инструкции и установка, фактические тесты, live handoff/resume не повторялись. Push/PR в этой задаче не запрошены.
+- [x] Проверенным Python выполнить `-m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex --dry-run --json`. Ожидается отсутствие конфликта; при чужих изменениях не обходить CAS.
+- [x] Тем же Python выполнить команду без `--dry-run`. Сравнить все 3 установленных Markdown-файла с исходником побайтово, проверить соответствие receipt штатной схеме bootstrap. Не менять другую установку/настройки.
+- [x] Отразить итог в acceptance и чекбоксах плана, проверить `git diff --check`, оформить только относящиеся изменения в ветке `docs/launch-python-interpreter`. При SDD соблюдать принятый режим коммитов его workflow; не публиковать приватные артефакты.
+- [x] Сообщить пользователю результат и границы: обновлённые инструкции и установка, фактические тесты, live handoff/resume не повторялись. Push/PR в этой задаче не запрошены.
 
 ## Самопроверка плана
 
