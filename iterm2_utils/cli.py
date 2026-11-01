@@ -62,7 +62,8 @@ def main(argv=None):
     for flag in ('window', 'profile', 'cwd', 'handoff'):
         launch_parser.add_argument('--'+flag, required=True)
     launch_parser.add_argument('--json', action='store_true')
-    bootstrap = sub.add_parser('bootstrap-skill', help='Copy only the public setup skill; select no terminal features.')
+    bootstrap = sub.add_parser('bootstrap-skill', help='Copy one public skill; select no terminal features.')
+    bootstrap.add_argument('--skill', choices=['iterm2-setup','iterm2-launch'], default='iterm2-setup')
     bootstrap.add_argument('--agent', choices=['codex','claude','both'], required=True)
     bootstrap.add_argument('--dry-run', action='store_true')
     bootstrap.add_argument('--json', action='store_true')
@@ -91,7 +92,7 @@ def main(argv=None):
         agents = AGENTS if args.agent == 'both' else frozenset({args.agent})
         # Bootstrap reads only its own bundle/receipt, never agent settings or binaries.
         context = Context(paths, {}, {}, frozenset(), {}, {})
-        findings = skill_install.install(context, agents, runner, dry_run=args.dry_run)
+        findings = skill_install.install(context, agents, runner, dry_run=args.dry_run, skill=args.skill)
         output = dict(mode='bootstrap_preview' if args.dry_run else 'bootstrap_skill',
                       selection=dict(agents=sorted(agents), features=[], shortcuts=[], parent_profile='Default'),
                       findings=[asdict(f) for f in findings])

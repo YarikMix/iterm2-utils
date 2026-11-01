@@ -18,9 +18,151 @@ class SkillInstallTests(unittest.TestCase):
 
     def invoke(self, *args):
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = main(['bootstrap-skill', *args, '--json'])
-        return code, json.loads(out.getvalue())
+        return code, json.loads(out.getvalue()) if out.getvalue() else None
+
+    def test_default_bootstrap_retains_legacy_receipt(self):
+        with Fixture() as f:
+            code, output = self.invoke('--agent', 'both')
+            self.assertEqual(code, 0, output)
+            receipt = resolve_paths().data/'bootstrap-skill/receipt.json'
+            resources = json.loads(receipt.read_text())['resources']
+            self.assertEqual(len(resources), 8)
+            self.assertTrue(all(r['owners'] == ['bootstrap-skill'] for r in resources))
+            for agent in ('.codex', '.claude'):
+                target = f.home/agent/'skills/iterm2-setup'
+                self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
+                                 ['SKILL.md', 'references/features.md', 'references/troubleshooting.md', 'references/ui.md'])
+                for name in skill_install.FILES:
+                    self.assertEqual((target/name).read_bytes(),
+                                     (resolve_paths().repo/'skills/iterm2-setup'/name).read_bytes())
+                self.assertFalse((f.home/agent/'skills/iterm2-launch').exists())
+            self.assertFalse((resolve_paths().data/'bootstrap-skill-iterm2-launch').exists())
+
+    def test_launch_bootstrap_is_codex_only(self):
+        with Fixture() as f:
+            context = self.context()
+            before = f.snapshot()
+            for agents in (frozenset({'claude'}), frozenset({'codex', 'claude'})):
+                with self.subTest(agents=agents), \
+                        patch('iterm2_utils.skill_install.state.load', side_effect=AssertionError('receipt inspection')), \
+                        patch.object(Path, 'is_symlink', side_effect=AssertionError('file inspection')):
+                    changes = skill_install.build(context, agents, skill='iterm2-launch')
+                    self.assertEqual(changes.edits, [])
+                    self.assertEqual(changes.findings[0].state, 'conflict')
+                    findings = skill_install.install(context, agents, f.runner, skill='iterm2-launch')
+                    self.assertEqual(findings[0].state, 'conflict')
+                    code, output = self.invoke('--skill', 'iterm2-launch', '--agent',
+                                               'both' if len(agents) == 2 else 'claude')
+                    self.assertEqual(code, 2, output)
+                    self.assertEqual(output['findings'][0]['state'], 'conflict')
+            self.assertEqual(f.snapshot(), before)
+            self.assertEqual(f.runner.calls, [])
+            code, output = self.invoke('--skill', 'iterm2-launch', '--agent', 'codex')
+            self.assertEqual(code, 0, output)
+            target = f.home/'.codex/skills/iterm2-launch'
+            self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
+                             ['SKILL.md', 'references/handoff.md'])
+            for name in ('SKILL.md', 'references/handoff.md'):
+                self.assertEqual((target/name).read_bytes(),
+                                 (context.paths.repo/'skills/iterm2-launch'/name).read_bytes())
+                self.assertEqual((target/name).stat().st_mode & 0o777, 0o644)
+            self.assertFalse((f.home/'.codex/skills/iterm2-setup').exists())
+            self.assertFalse((f.home/'.claude').exists())
+            self.assertTrue((context.paths.data/'bootstrap-skill-iterm2-launch/receipt.json').is_file())
+            self.assertFalse((context.paths.data/'bootstrap-skill').exists())
+            self.assertFalse((context.paths.data/'receipt.json').exists())
+
+    def test_both_skill_receipts_coexist(self):
+        for order in (('iterm2-setup', 'iterm2-launch'), ('iterm2-launch', 'iterm2-setup')):
+            with self.subTest(order=order), Fixture() as f:
+                with patch('iterm2_utils.cli.Runner', return_value=f.runner), contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(main(['install', '--agent', 'codex', '--features', 'shell', '--json']), 0)
+                feature_receipt = resolve_paths().data/'receipt.json'
+                feature_before = feature_receipt.read_bytes()
+                for skill in order:
+                    before = f.snapshot()
+                    agent = 'both' if skill == 'iterm2-setup' else 'codex'
+                    code, output = self.invoke('--skill', skill, '--agent', agent)
+                    self.assertEqual(code, 0, output)
+                    after = f.snapshot()
+                    for path, content in before.items():
+                        self.assertEqual(after[path], content, path)
+                for receipt in ('bootstrap-skill/receipt.json', 'bootstrap-skill-iterm2-launch/receipt.json'):
+                    self.assertTrue((resolve_paths().data/receipt).is_file())
+                self.assertEqual(feature_receipt.read_bytes(), feature_before)
+                skill_path = f.home/'.codex/skills/iterm2-launch/SKILL.md'
+                stamp = skill_path.stat().st_mtime_ns
+                before = f.snapshot()
+                self.assertEqual(self.invoke('--skill', 'iterm2-launch', '--agent', 'codex')[0], 0)
+                self.assertEqual(skill_path.stat().st_mtime_ns, stamp)
+                self.assertEqual(f.snapshot(), before)
+
+    def test_launch_dry_run_has_no_probes_or_writes(self):
+        with Fixture() as f:
+            before = f.snapshot()
+            with patch('iterm2_utils.cli.Runner', return_value=f.runner), \
+                    patch('iterm2_utils.cli.discover', side_effect=AssertionError('agent inspection')):
+                code, output = self.invoke('--skill', 'iterm2-launch', '--agent', 'codex', '--dry-run')
+            self.assertEqual(code, 0, output)
+            self.assertEqual(output['mode'], 'bootstrap_preview')
+            self.assertEqual(output['selection']['features'], [])
+            self.assertEqual(f.snapshot(), before)
+            self.assertEqual(f.runner.calls, [])
+
+    def test_launch_foreign_modified_symlink_preserved(self):
+        for case in ('foreign', 'modified', 'destination_symlink', 'reference_symlink', 'reference_directory_symlink', 'foreign_reference'):
+            with self.subTest(case=case), Fixture() as f:
+                target = f.home/'.codex/skills/iterm2-launch'
+                foreign = f.home/'foreign'
+                foreign.mkdir()
+                (foreign/'handoff.md').write_text('foreign')
+                if case == 'foreign':
+                    target.mkdir(parents=True)
+                    (target/'SKILL.md').write_text('foreign skill')
+                elif case == 'destination_symlink':
+                    target.parent.mkdir(parents=True)
+                    target.symlink_to(foreign, target_is_directory=True)
+                else:
+                    self.assertEqual(self.invoke('--skill', 'iterm2-launch', '--agent', 'codex')[0], 0)
+                    reference = target/'references/handoff.md'
+                    if case == 'modified':
+                        (target/'SKILL.md').write_text('user edit')
+                    else:
+                        reference.unlink()
+                        if case == 'reference_symlink':
+                            reference.symlink_to(foreign/'handoff.md')
+                        elif case == 'reference_directory_symlink':
+                            reference.parent.rmdir()
+                            reference.parent.symlink_to(foreign, target_is_directory=True)
+                        else:
+                            reference.write_text('foreign reference')
+                before = f.snapshot()
+                for extra in ((), ('--dry-run',)):
+                    code, output = self.invoke('--skill', 'iterm2-launch', '--agent', 'codex', *extra)
+                    self.assertEqual(code, 2, output)
+                    self.assertTrue(any(x['state'] == 'conflict' for x in output['findings']))
+                    self.assertEqual(f.snapshot(), before)
+                link = {'destination_symlink': target,
+                        'reference_directory_symlink': target/'references',
+                        'reference_symlink': target/'references/handoff.md'}.get(case)
+                if link is not None:
+                    self.assertTrue(link.is_symlink())
+
+    def test_unknown_skill_is_rejected_before_inspection(self):
+        with Fixture() as f:
+            context = self.context()
+            before = f.snapshot()
+            with patch('iterm2_utils.skill_install.state.load', side_effect=AssertionError('receipt inspection')), \
+                    patch.object(Path, 'is_symlink', side_effect=AssertionError('file inspection')):
+                changes = skill_install.build(context, frozenset({'codex'}), skill='../foreign')
+                self.assertEqual(changes.edits, [])
+                self.assertEqual(changes.findings[0].state, 'conflict')
+                findings = skill_install.install(context, frozenset({'codex'}), f.runner, skill='../foreign')
+                self.assertEqual(findings[0].state, 'conflict')
+                self.assertEqual(self.invoke('--skill', '../foreign', '--agent', 'codex')[0], 2)
+            self.assertEqual(f.snapshot(), before)
 
     def test_skill_install_does_not_replace_foreign_directory(self):
         with Fixture() as f:
@@ -92,33 +234,39 @@ class SkillInstallTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
     def test_owned_source_update_copies_all_references(self):
-        with Fixture() as f:
-            context = self.context()
-            bundle = f.home/'source/skills/iterm2-setup'
-            for name in skill_install.FILES:
-                source = context.paths.repo/'skills/iterm2-setup'/name
-                target = bundle/name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(source.read_bytes())
-            context.paths = replace(context.paths, repo=f.home/'source')
-            self.assertEqual(skill_install.install(context, frozenset({'codex'}), f.runner)[0].state, 'ready')
-            (bundle/'references/features.md').write_text('updated reference\n')
-            findings = skill_install.install(context, frozenset({'codex'}), f.runner)
-            self.assertFalse(any(x.state == 'conflict' for x in findings), findings)
-            target = context.paths.codex_home/'skills/iterm2-setup'
-            self.assertEqual((target/'references/features.md').read_text(), 'updated reference\n')
-            self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()), sorted(skill_install.FILES))
+        for skill, files, reference in (
+                ('iterm2-setup', skill_install.FILES, 'references/features.md'),
+                ('iterm2-launch', ('SKILL.md', 'references/handoff.md'), 'references/handoff.md')):
+            with self.subTest(skill=skill), Fixture() as f:
+                context = self.context()
+                bundle = f.home/'source/skills'/skill
+                for name in files:
+                    source = context.paths.repo/'skills'/skill/name
+                    target = bundle/name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(source.read_bytes())
+                context.paths = replace(context.paths, repo=f.home/'source')
+                self.assertEqual(skill_install.install(context, frozenset({'codex'}), f.runner, skill=skill)[0].state, 'ready')
+                (bundle/reference).write_text('updated reference\n')
+                findings = skill_install.install(context, frozenset({'codex'}), f.runner, skill=skill)
+                self.assertFalse(any(x.state == 'conflict' for x in findings), findings)
+                target = context.paths.codex_home/'skills'/skill
+                self.assertEqual((target/reference).read_text(), 'updated reference\n')
+                self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()), sorted(files))
 
     def test_corrupt_bootstrap_receipt_blocks_copy(self):
-        with Fixture() as f:
-            path = resolve_paths().data/'bootstrap-skill/receipt.json'
-            path.parent.mkdir(parents=True)
-            path.write_text('{BROKEN')
-            before = f.snapshot()
-            code, output = self.invoke('--agent', 'codex')
-            self.assertEqual(code, 2)
-            self.assertEqual(before, f.snapshot())
-            self.assertNotIn('BROKEN', str(output))
+        for skill, receipt in (('iterm2-setup', 'bootstrap-skill'),
+                               ('iterm2-launch', 'bootstrap-skill-iterm2-launch')):
+            with self.subTest(skill=skill), Fixture() as f:
+                path = resolve_paths().data/receipt/'receipt.json'
+                path.parent.mkdir(parents=True)
+                path.write_text('{BROKEN')
+                before = f.snapshot()
+                args = () if skill == 'iterm2-setup' else ('--skill', skill)
+                code, output = self.invoke('--agent', 'codex', *args)
+                self.assertEqual(code, 2)
+                self.assertEqual(before, f.snapshot())
+                self.assertNotIn('BROKEN', str(output))
 
     def test_foreign_reference_symlink_and_file_are_not_adopted(self):
         with Fixture() as f:
