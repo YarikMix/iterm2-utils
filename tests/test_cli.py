@@ -9,6 +9,45 @@ from iterm2_utils.cli import main
 
 
 class CliTests(unittest.TestCase):
+    def test_appearance_config_rejected_without_explicit_feature_before_discovery(self):
+        with Fixture() as f, patch('iterm2_utils.cli.discover') as discover:
+            code,out,err=self.invoke(f,['plan','--agent','codex','--features','shell','--appearance-config','/unused.json','--json'])
+            self.assertEqual(code,2)
+            self.assertIn('appearance_config_selection',out)
+            discover.assert_not_called()
+
+    def test_appearance_cli_plan_install_and_readonly_live_doctor(self):
+        from iterm2_utils.discovery import resolve_paths
+        from iterm2_utils import state
+        with Fixture() as f:
+            config=f.home/'private.json'
+            config.write_text(json.dumps({'projects':[{'root':str(f.home/'repo'),'color':'#112233','icon':'ios'}]}))
+            run=f.runner.run
+            def probe(argv,**kwargs):
+                result=run(argv,**kwargs)
+                if argv[1:2]==['-c']:return subprocess.CompletedProcess(argv,0,'iterm2-sdk-ready\n','')
+                if argv[-1:] == ['--probe']:return subprocess.CompletedProcess(argv,0,'ready\n','')
+                return result
+            with patch.object(f.runner,'run',side_effect=probe):
+                before=f.snapshot()
+                code,out,err=self.invoke(f,['plan','--agent','codex','--features','appearance','--appearance-config',str(config),'--json'])
+                self.assertEqual(code,3,out+err);self.assertEqual(f.snapshot(),before)
+                self.assertNotIn(str(config),out);self.assertNotIn('--probe',repr(f.runner.calls))
+                code,out,err=self.invoke(f,['install','--agent','codex','--features','appearance','--appearance-config',str(config),'--json'])
+                self.assertEqual(code,3,out+err)
+                before=f.snapshot();f.runner.calls.clear()
+                code,out,err=self.invoke(f,['doctor','--json'])
+                self.assertEqual(code,3,out+err);self.assertNotIn('--probe',repr(f.runner.calls))
+                self.assertEqual(f.snapshot(),before)
+                code,out,err=self.invoke(f,['doctor','--live','--json'])
+                self.assertEqual(code,3,out+err)
+                self.assertTrue(any(x['code']=='appearance_api' and x['state']=='ready' for x in json.loads(out)['findings']))
+                self.assertEqual(f.snapshot(),before)
+                self.assertEqual([x.code for x in state.load(resolve_paths().data/'receipt.json').pending_ui],['appearance_api'])
+                code,out,err=self.invoke(f,['reconcile','--step','appearance_api','--json'])
+                self.assertEqual(code,0,out+err)
+                self.assertFalse(state.load(resolve_paths().data/'receipt.json').pending_ui)
+
     def test_doctor_missing_native_pair_blocks_without_executing_handler(self):
         for name in ('it2','cc-status'):
             with self.subTest(name=name), Fixture() as f:

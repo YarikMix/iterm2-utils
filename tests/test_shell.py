@@ -35,6 +35,25 @@ class ShellTests(ShellFixture, unittest.TestCase):
         text=next(e.after.decode() for e in changes.edits if isinstance(e,FileEdit) and e.path==self.context.paths.zshrc)
         self.assertNotIn('shell_integration',text)
         self.assertIn('codex.zsh',text)
+    def test_appearance_is_dispatcher_consumer_without_enabling_shell_marks(self):
+        from iterm2_utils.features.shell import runtime_payload
+        selection=self.selection(('appearance',))
+        changes=build(self.context,selection)
+        text=next((e.after.decode() for e in changes.edits if e.path==self.context.paths.zshrc),'')
+        self.assertIn('appearance.zsh',text)
+        self.assertIn('codex.zsh',text)
+        self.assertNotIn('iterm2_shell_integration.zsh',text)
+        self.assertIn(str(self.context.paths.config/'appearance.json').replace("'", "'\"'\"'"),text)
+        self.assertEqual(changes.consumers['shared:shell'],frozenset({'codex:appearance'}))
+        payload=runtime_payload(self.context,selection)
+        self.assertIn('shared:runtime',payload.consumers)
+        self.assertTrue(any(e.path.name=='appearance.zsh' for e in payload.edits))
+    def test_appearance_uses_existing_conflict_detection(self):
+        for text in ("alias codex='other'\n",'function codex() { echo other; }\n'):
+            self.context.paths.zshrc.write_text(text)
+            changes=build(self.context,self.selection(('appearance',)))
+            self.assertEqual(changes.edits,[])
+            self.assertTrue(any(f.state=='conflict' for f in changes.findings))
     def test_unicode_source_path_is_literal(self):
         import subprocess
         changes=build(self.context,self.selection(('status',)))

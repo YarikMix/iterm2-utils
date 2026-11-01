@@ -10,7 +10,7 @@ from .models import ChangeSet, Finding, Outcome, Plan, Receipt, Selection, FileE
 from .planner import FEATURES, plan, validate
 
 BLOCKING = {'conflict','missing_dependency','unavailable'}
-ORDER = ('shell','clipboard','shortcuts','status','notifications','restore','mcp')
+ORDER = ('shell','clipboard','shortcuts','status','notifications','restore','mcp','appearance')
 
 
 def _empty():
@@ -71,6 +71,8 @@ def install(context, selection, runner, *, dry_run=False):
         previous = expected_receipt or _empty()
     except (ValueError,OSError):
         return _problem(None)
+    if context.appearance_config is not None and 'appearance' not in selection.features:
+        return _problem(previous,'appearance_config_selection','An appearance configuration requires an explicit Codex appearance selection.')
     invalid = [f for f in validate(selection,context) if f.code in {'invalid_agents','invalid_features','invalid_shortcuts','invalid_parent'}]
     if invalid:
         return Outcome(previous,invalid)
@@ -102,7 +104,7 @@ def install(context, selection, runner, *, dry_run=False):
         active_pairs = frozenset(agent+':'+f for f in active)
         prepared = plan(_context(context),chosen)
         # Codex-only means Claude is untouched when both agents were requested.
-        shared_codes = {'shell_conflict','hook_conflict','no_daemon'} if feature in {'status','notifications','restore'} else set()
+        shared_codes = {'shell_conflict','hook_conflict','no_daemon'} if feature in {'status','notifications','restore','appearance'} else set()
         if feature in {'clipboard','shortcuts'}:
             shared_codes |= {'missing_parent','invalid_parent_keyboard_map','prevent_aps','competing_aps','binding_conflict','profile_conflict'}
         # One profile edit replaces both agents' profiles. Keep blockers for
@@ -283,6 +285,11 @@ def reconcile_ui(context, code, runner):
                     if not any(engine._identity(r)==engine._identity(resource) for r in result.resources):
                         result.resources.append(resource)
                 findings.append(Finding('status','claude','native_status','ready','Native hooks verified; pre-existing entries remain externally owned.'))
+            elif code == 'appearance_api':
+                from .discovery import live_appearance
+                findings = [live_appearance(context,runner)]
+                if findings[0].state != 'ready':
+                    return Outcome(receipt,findings)
             elif code in {'mcp_authorize','python_api'}:
                 findings = [mcp.probe(context,runner,s.agent) for s in steps if s.agent]
                 if not findings or any(f.state != 'ready' for f in findings):
@@ -332,10 +339,10 @@ def doctor(context, receipt, runner):
             if not engine._same(current, resource['installed']):
                 missing = resource['installed']['exists'] and not current['exists']
                 findings.append(Finding(feature, agent, 'owned_resource_missing' if missing else 'owned_resource_changed',
-                    'conflict', 'Owned resource is missing: ' + resource['target'] if missing else 'Owned resource differs from the receipt: ' + resource['target']))
+                    'conflict', ('Owned appearance resource is missing.' if missing else 'Owned appearance resource differs from the receipt.') if feature == 'appearance' else 'Owned resource is missing: ' + resource['target'] if missing else 'Owned resource differs from the receipt: ' + resource['target']))
         except (OSError, ValueError, TypeError, RuntimeError):
             findings.append(Finding(feature, agent, 'resource_unavailable', 'unavailable',
-                'Owned resource could not be inspected: '+resource['target']))
+                'Owned appearance resource could not be inspected.' if feature == 'appearance' else 'Owned resource could not be inspected: '+resource['target']))
     # Identical external registrations may be reused without receipt ownership.
     for agent in sorted(receipt.selection.agents_for('mcp')):
         try:

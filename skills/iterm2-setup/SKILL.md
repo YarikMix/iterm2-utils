@@ -1,6 +1,6 @@
 ---
 name: iterm2-setup
-description: Use when setting up, checking, updating or removing selective iTerm2 integrations for Codex CLI or Claude Code on macOS with zsh, including clipboard, status, notifications, restore, MCP, shell integration and shortcuts.
+description: Use when setting up, checking, updating or removing selective iTerm2 integrations for Codex CLI or Claude Code on macOS with zsh, including clipboard, status, notifications, restore, MCP, shell integration, shortcuts and repository tab appearance.
 ---
 
 # iTerm2 setup
@@ -16,14 +16,21 @@ No private skills, corporate services or workspace framework are required.
 2. Ask which **detected agents and features** the colleague wants. Preserve choices
    already explicit in the request. Explain only the relevant choices from
    [features](references/features.md); never infer all features from “setup”.
-   Bootstrap copies the skill only; it authorizes none of the seven features.
+   Bootstrap copies the skill only; it authorizes none of the eight features.
 3. List missing dependencies for the chosen features before installing them with
    an existing package manager. Keep the chosen agents and features; dependencies
    do not justify a second agent, a different feature or installing Peekaboo.
+   Appearance needs `iterm2` importable in the selected Python 3.11+ interpreter;
+   choose an existing suitable interpreter with absolute `ITERM2_UTILS_PYTHON`.
+   Do not run pip at shell startup.
 4. Run `python3 -m iterm2_utils plan --agent AGENT --features CSV --json` with only
    the selected values (`AGENT`: `codex`, `claude`, `both`). For shortcuts add
    `--shortcuts CSV`; choose the existing parent with `--parent-profile NAME` if
-   needed. Use separate calls when agents want different features/shortcuts;
+   needed. For Codex-only `appearance`, add `--appearance-config /path/to/rules.json`
+   on first plan/install; validate the JSON and selected Python SDK prerequisite
+   from [features](references/features.md). Preserve that explicit path for the
+   matching dry-run/install; never publish its contents or personal roots.
+   Use separate calls when agents want different features/shortcuts;
    inspect `selection.agent_features` and `agent_shortcuts`. Resolve conflicts
    explicitly; preserve foreign settings and MCP. For `foreign_notifications`,
    offer keeping the external system alone or explicit `--coexist-notifications`

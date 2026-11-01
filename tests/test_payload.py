@@ -1,4 +1,8 @@
 import shutil
+import json
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from dataclasses import replace
 from iterm2_utils.features.shell import runtime_payload
@@ -51,3 +55,100 @@ class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
             shutil.copy2(self.context.paths.repo/name,checkout/name)
         self.context.paths=replace(self.context.paths,repo=checkout)
         with self.assertRaises(ValueError): runtime_payload(self.context,self.selection())
+
+
+class AppearancePayloadTests(test_shell.ShellFixture, unittest.TestCase):
+    def checkout(self):
+        checkout = self.root/'checkout'
+        checkout.mkdir()
+        for name in ('runtime', 'vendor'):
+            shutil.copytree(self.context.paths.repo/name, checkout/name)
+        for name in ('LICENSE', 'THIRD_PARTY_NOTICES.md'):
+            shutil.copy2(self.context.paths.repo/name, checkout/name)
+        self.context.paths = replace(self.context.paths, repo=checkout)
+        return checkout
+
+    def test_known_assets_and_helpers_are_installed_without_arbitrary_images(self):
+        checkout = self.checkout()
+        (checkout/'runtime/assets/appearance/private.png').write_bytes(b'PRIVATE_FIXTURE')
+        changes = runtime_payload(self.context, self.selection(('appearance',)))
+        release = Path(next(e.after for e in changes.edits if isinstance(e, SymlinkEdit)))
+        files = {str(e.path.relative_to(release)): e.after
+                 for e in changes.edits if isinstance(e, FileEdit)}
+        names = {'ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud', 'android-mail', 'android-cloud'}
+        self.assertEqual({p for p in files if p.startswith('assets/')},
+                         {f'assets/appearance/{name}.{ext}' for name in names for ext in ('png', 'svg')})
+        self.assertTrue({'appearance.py', 'appearance.zsh', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
+                         'vendor/shell_integration/LICENSE', 'vendor/codex_status/LICENSE'} <= files.keys())
+
+    def test_builtin_bytes_change_release_and_appearance_plan_identity(self):
+        from iterm2_utils.planner import plan
+        checkout = self.checkout()
+        self.context.capabilities |= {'macos', 'python:iterm2'}
+        self.context.appearance_config = self.root/'rules.json'
+        self.context.appearance_config.write_text(json.dumps({'projects': [dict(root=str(self.root), color='#123456', icon='ios')]}))
+        selection = self.selection(('appearance',))
+        first = runtime_payload(self.context, selection)
+        fingerprint = plan(self.context, selection).fingerprint
+        target = checkout/'runtime/assets/appearance/android.png'
+        target.write_bytes((checkout/'runtime/assets/appearance/ios.png').read_bytes())
+        second = runtime_payload(self.context, selection)
+        self.assertNotEqual(next(e.after for e in first.edits if isinstance(e, SymlinkEdit)),
+                            next(e.after for e in second.edits if isinstance(e, SymlinkEdit)))
+        self.assertNotEqual(fingerprint, plan(self.context, selection).fingerprint)
+
+    def test_missing_or_symlink_assets_are_rejected(self):
+        checkout = self.checkout()
+        for relative in ('assets/appearance/ios.png', 'assets/appearance/ios.svg'):
+            target = checkout/'runtime'/relative
+            before = target.read_bytes()
+            target.unlink()
+            with self.assertRaises(ValueError): runtime_payload(self.context, self.selection(('appearance',)))
+            target.symlink_to(checkout/'LICENSE')
+            with self.assertRaises(ValueError): runtime_payload(self.context, self.selection(('appearance',)))
+            target.unlink(); target.write_bytes(before)
+        folder = checkout/'runtime/assets/appearance'
+        folder.rename(folder.with_name('original'))
+        folder.symlink_to(folder.with_name('original'), target_is_directory=True)
+        with self.assertRaises(ValueError): runtime_payload(self.context, self.selection(('appearance',)))
+
+    def test_installed_icons_selected_after_all_sources_removed(self):
+        from tests.test_lifecycle import LifecycleFixture
+        fixture = LifecycleFixture(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        checkout = self.checkout()
+        fixture.context.paths = replace(fixture.context.paths, repo=checkout)
+        fixture.context.capabilities |= {'python:iterm2'}
+        project = fixture.context.paths.home/'project'; project.mkdir()
+        custom_root = project/'custom'; custom_root.mkdir()
+        original_png = fixture.context.paths.home/'original.png'
+        original_png.write_bytes((checkout/'runtime/assets/appearance/ios.png').read_bytes())
+        source = fixture.context.paths.home/'source-rules.json'
+        source.write_text(json.dumps({'projects': [dict(root=str(project),color='#123456',icon='android-mail'),
+                                                    dict(root=str(custom_root),color='#654321',icon=str(original_png))]}))
+        fixture.context.appearance_config = source
+        result = fixture.install('appearance'); fixture.assertSuccess(result)
+        current = fixture.context.paths.data/'current'
+        config = fixture.context.paths.config/'appearance.json'
+        source.unlink(); original_png.unlink(); shutil.rmtree(checkout)
+        script = """import importlib.util, pathlib, sys
+current, config, project, custom = map(pathlib.Path, sys.argv[1:])
+sys.path.insert(0, str(current))
+import appearance
+rules = appearance.load_rules(config)
+seen = []
+async def worker(request):
+    icon = pathlib.Path(request['icon'])
+    assert icon.is_file() and icon.read_bytes().startswith(bytes([137])+b'PNG')
+    seen.append(icon)
+    return 'applied'
+appearance._operate = worker
+for cwd in (project, custom):
+    assert appearance._run_request(dict(config=str(config), cwd=str(cwd), phase='shell', terminal='12345678-1234-4234-8234-123456789abc')) == 'applied'
+assert seen[0] == current/'assets/appearance/android-mail.png'
+assert seen[1].parent.name == 'icons'
+assert (current/'LICENSE').is_file() and (current/'THIRD_PARTY_NOTICES.md').is_file()
+"""
+        result = subprocess.run([sys.executable, '-c', script, str(current), str(config), str(project), str(custom_root)],
+                                cwd=fixture.context.paths.home, env={'PATH':'/usr/bin:/bin', 'PYTHONNOUSERSITE':'1'},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)

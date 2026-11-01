@@ -29,7 +29,7 @@ class Selection:
 
     def agents_for(self, feature):
         return frozenset(a for a in self.agents if feature in self.features_for(a)
-                         and (feature not in {'clipboard', 'restore'} or a == 'codex'))
+                         and (feature not in {'clipboard', 'restore', 'appearance'} or a == 'codex'))
 
     @property
     def pairs(self):
@@ -38,7 +38,7 @@ class Selection:
     def explicit(self):
         from dataclasses import replace
         features = {a: sorted(f for f in self.features_for(a)
-                    if f not in {'clipboard', 'restore'} or a == 'codex') for a in self.agents}
+                    if f not in {'clipboard', 'restore', 'appearance'} or a == 'codex') for a in self.agents}
         shortcuts = {a: sorted(self.shortcuts_for(a)) for a in self.agents}
         return replace(self, agent_features=features, agent_shortcuts=shortcuts)
 
@@ -97,6 +97,7 @@ class Context:
     profiles: dict[str, dict]
     installed: dict[str, dict]
     preferences: dict[str, dict[str, object]] = field(default_factory=dict)
+    appearance_config: Path | None = None
 
 
 @dataclass
@@ -178,7 +179,7 @@ def resource_pairs(selection, feature, target, context, shared=None):
     target = str(Path(target).resolve()) if target and Path(target).is_absolute() else str(target)
     if target == 'claude' or target == str(context.paths.claude_settings.resolve()):
         agents &= {'claude'}
-    elif target == 'codex' or target in {str((context.paths.codex_home/name).resolve()) for name in ('config.toml','hooks.json')} or feature in {'clipboard','restore'}:
+    elif target == 'codex' or target in {str((context.paths.codex_home/name).resolve()) for name in ('config.toml','hooks.json')} or feature in {'clipboard','restore','appearance'}:
         agents &= {'codex'}
     elif shared == 'shared:shell' and feature != 'shell':
         agents &= {'codex'}

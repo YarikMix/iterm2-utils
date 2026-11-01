@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+Added explicit Codex-only `appearance`: repository JSON rules choose a session
+color and one of seven bundled composite PNGs or an owned copy of a custom PNG.
+Applies at interactive shell/Codex start (including resume/fork/restore), not cd;
+no match or unavailable target leaves appearance unchanged. Uses the shared
+installer/dispatcher and selected Python 3.11+ with the official iterm2 SDK.
+Update works without original JSON/PNG; selective uninstall preserves foreign
+changes and other runtime consumers. API authorization stays pending until the
+explicit-session read-only reconcile succeeds. Offline assets, original SVGs and
+MIT attribution are included in runtime/export. Fixture delivery and lifecycle
+checks do not establish live APS transitions, icon readability or API permission.
+
 Added `launch-codex` and the separately installed Codex-only `iterm2-launch`
 skill: one new tab in an explicit window/profile, preserved login-zsh wrapper,
 unique handoff/receipt instructions and bounded observations without automatic

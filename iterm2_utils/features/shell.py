@@ -15,7 +15,12 @@ from ..models import ChangeSet, Context, Selection, FileEdit, SymlinkEdit, Findi
 
 OWNER = 'shared:shell'
 RUNTIME_OWNER = 'shared:runtime'
-DEPENDENTS = frozenset({'status', 'notifications', 'restore'})
+DEPENDENTS = frozenset({'status', 'notifications', 'restore', 'appearance'})
+# Only these original drawings belong in immutable runtime releases.
+APPEARANCE_ASSETS = tuple(Path('assets/appearance') / (name + '.' + extension)
+                          for name in ('ios', 'android', 'kotlett', 'ios-mail', 'ios-cloud',
+                                       'android-mail', 'android-cloud')
+                          for extension in ('png', 'svg'))
 
 
 def _dispatcher(selection):
@@ -32,8 +37,8 @@ def _consumers(selection):
 def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
     """Copy validated source trees before switching the stable current symlink.
 
-    Only runtime Python/zsh, vendor Python/zsh/license and package helpers are
-    eligible, together with root license/attribution. Mutable caches/configuration
+    Only runtime Python/zsh, vendor Python/zsh/license, package helpers and
+    explicitly named appearance PNG/SVG are eligible, with root attribution. Mutable caches/configuration
     never belong in the release tree.
     """
     changes = ChangeSet([], [], [])
@@ -57,6 +62,12 @@ def runtime_payload(context: Context, selection: Selection) -> ChangeSet:
             files[target] = source.read_bytes()
     if Path('codex.zsh') not in files or Path('vendor/shell_integration/iterm2_shell_integration.zsh') not in files:
         raise ValueError('Incomplete runtime payload')
+    for relative in APPEARANCE_ASSETS:
+        source = context.paths.repo/'runtime'/relative
+        if (any(parent.is_symlink() for parent in
+                (source, *(context.paths.repo/'runtime'/part for part in relative.parents))) or not source.is_file()):
+            raise ValueError('Missing or unsafe appearance asset')
+        files[relative] = source.read_bytes()
     for name in ('LICENSE', 'THIRD_PARTY_NOTICES.md'):
         source = context.paths.repo/name
         if source.is_symlink() or not source.is_file():
@@ -116,6 +127,9 @@ def build(context: Context, selection: Selection) -> ChangeSet:
             lines.extend(['typeset -g ITERM2_UTILS_PYTHON='+quote(context.executables['python3']),
                           'typeset -g ITERM2_UTILS_CODEX_NO_DAEMON='+('1' if 'codex:no-daemon' in context.capabilities else '0'),
                           'source '+quote(current/'codex.zsh')])
+            if 'appearance' in selection.features_for('codex'):
+                lines.extend(['typeset -g ITERM2_UTILS_APPEARANCE_CONFIG='+quote(context.paths.config/'appearance.json'),
+                              'source '+quote(current/'appearance.zsh')])
             if 'restore' in selection.features_for('codex'):
                 lines.extend(['export CODEX_RESTORE_IT2='+quote(context.executables['it2']),
                               'export CODEX_RESTORE_ITERM_PROCESS='+quote(context.executables['iterm2']/'Contents/MacOS/iTerm2'),

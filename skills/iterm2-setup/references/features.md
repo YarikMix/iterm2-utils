@@ -9,13 +9,14 @@
 | `mcp` | Separately selected terminal-reading MCP for selected agents | uvx; server Python 3.12+, Python API and human authorization |
 | `shell` | Official zsh command marks/navigation in iTerm2 | zsh and iTerm2 |
 | `shortcuts` | Explicit subset: ctrl-v-ru, alt-enter, ctrl-q, resume | Detected compatible agent version for alt-enter |
+| `appearance` | Repository color/composite icon at interactive shell/Codex start; ordinary cd has no effect | Selected Python 3.11+ with `iterm2` SDK; enabled/authorized Python API |
 
 First release: macOS + zsh. Most agent integrations require the selected agent
 already installed. Never install a missing second agent implicitly. CLI plan
 findings determine exact supported capabilities; a dependency preview is not
 proof of a live connection.
 
-Clipboard and restore are Codex-only. Codex automatic profile matching is
+Clipboard, restore and appearance are Codex-only. Codex automatic profile matching is
 `&codex`, never `claude`; a Claude shortcut profile has no Codex copy bindings.
 Only clipboard selects `tui.copy_on_select = "never"` and shared iTerm2
 `CopySelection = false`; shortcuts alone leave copy-on-select unchanged.
@@ -78,3 +79,45 @@ caller chooses coexistence, include `--coexist-notifications` in both plan and
 install. It persists for updates for the chosen agents, preserves every foreign handler and can produce
 duplicate banners. Never infer coexistence from ordinary notification opt-in or
 remove foreign hooks by command-name heuristics.
+
+## Repository appearance (eighth opt-in feature)
+
+Only select `appearance` when requested; bootstrap selects none. First plan/install
+requires `--appearance-config /path/to/rules.json`, with this strict schema:
+
+```json
+{"projects": [{"root": "/path/to/repo", "color": "#65A85A", "icon": "android-mail"}]}
+```
+
+Only `projects` at the top level; a nonempty list of objects containing exactly
+`root`, `color`, `icon`. Root is absolute, color is `#RRGGBB`, icon is one of
+`ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`, `android-mail`, `android-cloud`
+or an absolute custom `.png` path. PNG limits: 16 MiB source, 4096 pixels per side,
+128 MiB decoded data. No URLs or evaluated shell text. Most specific physical
+root wins; duplicate physical roots are rejected. Unavailable external targets
+are not created/scanned and do not apply. Never publish personal roots/rules.
+
+Plan/dry-run validate files and the selected interpreter's `iterm2` import without
+calling the API. Maintain an absolute `ITERM2_UTILS_PYTHON` override on subsequent
+setup commands when choosing a nondefault existing Python. No startup pip or
+image download. Install copies normalized rules and content-addressed custom PNGs
+outside immutable runtime; seven builtins and SVG sources ship offline with MIT
+attribution. Runtime survives removal of checkout/original JSON/PNG. Install
+without a new JSON reuses owned rules; explicit new JSON replaces the owned set.
+Update needs no original source. Changed/foreign values remain conflicts.
+
+Use the ordinary plan/install/doctor/update/uninstall CLI workflow. Read pending
+`appearance_api` and follow ui.md; successful read-only API access does not prove
+color/icon rendering. Reconcile alone clears its API checkpoint. No status,
+notifications, MCP, command marks or Claude appearance are enabled implicitly.
+
+The physical calling shell cwd determines shell startup and interactive Codex
+(including resume/fork/restore) appearance; `--cd` and conversation text do not.
+No match, service command or API failure preserves current appearance. Only
+session tab color/use-color and custom icon/mode change; Default/profile/title
+stay intact. A bounded transition observer addresses APS for launch/return;
+there is no daemon/chpwd hook. Actual APS/theme transitions and readability of
+the paired symbols remain live pending. tmux/SSH need separate acceptance.
+Uninstall removes only unchanged owned appearance resources, keeps shared
+consumers, and does not reset/restart open tabs. Old custom hash copies remain
+owned until uninstall; an empty config object may remain after removal.

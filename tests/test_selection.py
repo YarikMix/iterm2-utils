@@ -6,6 +6,15 @@ from iterm2_utils.planner import plan, validate
 
 
 class SelectionTests(unittest.TestCase):
+    def test_appearance_pairs_are_codex_only_even_for_legacy_both_selection(self):
+        from iterm2_utils.models import resource_pairs
+        with Fixture() as f:
+            context=discover(resolve_paths(),f.runner)
+            selection=Selection(frozenset({'codex','claude'}),frozenset({'appearance','shell'}),frozenset(),'Default')
+            self.assertEqual(selection.agents_for('appearance'),{'codex'})
+            self.assertEqual(selection.explicit().features_for('claude'),{'shell'})
+            self.assertEqual(resource_pairs(selection,'appearance','',context),{'codex:appearance'})
+
     def test_missing_binary_blocks_only_affected_feature(self):
         with Fixture() as f:
             (f.bin / 'terminal-notifier').unlink()

@@ -208,3 +208,45 @@ Mutable branch dependencies are not used. A newer local notification snapshot
 has recorded source hashes but no public commit identity; the public base and
 adaptation are disclosed in notices. No code or settings must be fetched from
 that source installation at runtime.
+
+## Repository appearance — local verification, 2026-11-01
+
+Fixture checks and separately authorized native checks are recorded below;
+this is not a new CI execution claim.
+The eighth opt-in feature `appearance` is Codex-only, macOS/zsh, selected Python
+3.11+ with the official `iterm2` SDK. Source and installed runtime include seven
+original transparent PNGs and their SVGs under the package MIT license.
+[Setup, strict JSON and lifecycle](repo-appearance.md).
+
+| Scope | Actual evidence |
+| --- | --- |
+| Rules and selection | Isolated rules fixtures: physical roots/symlinks, nested roots/path boundaries, missing external targets, invalid schema/colors/icons |
+| API/helper | Fake API/clock/process fixtures: explicit matching UUID only, bounded failures/timeouts, session properties only; no real SDK/API authorization or rendering claim |
+| Shell/Codex/restore | Fake Codex and helper; argv/status/stderr, once-only source, service exclusions, physical cwd, no cd assignment, restore dispatch and child absence while the same interactive shell remains alive |
+| Lifecycle | TemporaryDirectory HOME, fake Runner: opt-in, selected SDK import prerequisite, no-write plan/dry-run, CAS/update/reinstall/uninstall, partial consumers and API pending/reconcile |
+| Delivery | Focused payload/export regression suite; seven PNG+SVG pairs, helper/licenses, byte-sensitive release/fingerprint, missing/symlink rejection, no arbitrary image/state export; installed builtin/custom selection after checkout/original JSON/PNG deletion |
+| `python3 -m unittest discover -v` | 518 tests, PASS (97.416s), one case-sensitive-filesystem skip, Python 3.13.7; final controller run after ownership fixes, including extracted-archive payload/CLI tests |
+| `/bin/zsh tests/test_codex_shell.zsh` | PASS, Codex dispatcher tests passed |
+| `/bin/zsh tests/test_appearance_shell.zsh` | 16 tests, PASS (7.859s), zsh 5.9 |
+| `/bin/zsh tests/restore/test_codex.zsh` | 37 tests, PASS (31.707s), pass=37 fail=0 |
+| `python3 tools/check_sources.py` | 27 pinned sources verified; upstream provenance retained |
+| `python3 tools/check_skill.py` | Structure valid; no behavioral evaluation |
+| `python3 tools/check_export.py` | 124 explicit unique files; licenses/provenance/private-reference checks PASS |
+| `python3 tools/build_release.py --destination dist`; `git diff --check` | PASS; allowlisted beta.1 archive/checksum built, final whitespace output empty |
+
+| Appearance live case | Status |
+| --- | --- |
+| Enabled/authorized Python API in the selected interpreter/session | PASS: authorized local appearance-only install and explicit-session API access, iTerm2 3.7.6, Python 3.13.7 |
+| Five selected color/icon combinations and normal-size symbol readability | PASS: 5/5 fresh native sessions matched exact color/icon properties; captured native tab bar inspected at normal size |
+| Existing APS on Codex entry and exit | PASS: native auto-exiting executable named Codex, installed dispatcher/restore wrapper and real APS; matched, no-match, manual color/icon and reassignment cases all passed |
+| Real Codex baseline | One controlled real executable run, without a model prompt: late running and returned style preserved. An earlier isolated matched-style loss was not reproduced; its cause is not claimed fixed |
+| Ordinary cd and launch without a matching root | PASS: cd preserved style; no-match launch/return preserved both assigned and manually changed pairs. Separate native checks preserved exact base/light/dark color values |
+| Resume/fork/restore picker, actual theme switching and disconnected SSD | Fixture coverage; not exercised live. A working SSD was not disconnected during other work |
+| Failure paths and own temporary-tab cleanup | Failure/cancellation paths covered by fixtures; no real permission revocation. All five final own sessions and the separate debug session closed by exact IDs; foreign sessions preserved |
+
+The fixture table uses isolated settings and fake adapters. The separate live
+table records authorized local installation and native observations; private
+rules, paths, receipts and screenshots are excluded from the public package.
+The final post-install check passed five startup and four APS scenarios. Native
+API failures and profile changes later than the bounded observer remain limits;
+connectivity alone does not establish rendering or APS behavior.

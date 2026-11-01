@@ -49,6 +49,7 @@ def main(argv=None):
             command_parser.add_argument('--features',required=True,help=', '.join(sorted(FEATURES)))
             command_parser.add_argument('--shortcuts',default='',help=', '.join(sorted(SHORTCUTS)))
             command_parser.add_argument('--parent-profile')
+            command_parser.add_argument('--appearance-config', type=Path)
             command_parser.add_argument('--adopt-legacy',action='store_true')
             command_parser.add_argument('--coexist-notifications',action='store_true')
         elif command == 'uninstall':
@@ -80,6 +81,10 @@ def main(argv=None):
             else:
                 print('Choose supported features explicitly; no inspection or changes performed.')
             return 2
+    if getattr(args,'appearance_config',None) is not None and 'appearance' not in features:
+        finding = Finding('appearance',None,'appearance_config_selection','conflict','An appearance configuration requires an explicit appearance feature selection.')
+        print(json.dumps({'mode':'invalid_selection','findings':[asdict(finding)]}) if args.json else finding.message)
+        return 2
     runner = Runner()
     paths = resolve_paths()
     if args.command == 'launch-codex':
@@ -104,6 +109,7 @@ def main(argv=None):
         except (OSError, ValueError):
             previous = None
         context = discover(paths,runner,agents=agents | (previous.selection.agents if previous else frozenset()))
+        context.appearance_config = args.appearance_config
         selection = Selection(agents,features,shortcuts,args.parent_profile if args.parent_profile is not None else previous.selection.parent_profile if previous else 'Default',args.adopt_legacy,coexist_notifications=args.coexist_notifications)
         if args.command == 'plan':
             # Preview the same cumulative intent as install, with new choices
@@ -137,6 +143,9 @@ def main(argv=None):
                 findings += [Finding(s.feature,s.agent,s.code,'pending_ui',s.instruction) for s in receipt.pending_ui]
             if args.live:
                 findings.extend(live_status(context,runner,receipt.selection if receipt else None))
+                if receipt and receipt.selection.agents_for('appearance'):
+                    from .discovery import live_appearance
+                    findings.append(live_appearance(context,runner))
                 if receipt and 'mcp' in receipt.selection.features:
                     from .config.mcp import probe
                     findings.extend(probe(context,runner,a) for a in sorted(receipt.selection.agents_for('mcp')))
