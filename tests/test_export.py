@@ -14,12 +14,66 @@ from tools import build_release, check_export
 
 ROOT = Path(__file__).resolve().parents[1]
 
+LAUNCH_SMOKE = r"""import importlib, json, pathlib, sys
+from unittest.mock import patch
+from iterm2_utils import launch
+from iterm2_utils.discovery import resolve_paths
+from iterm2_utils.launch_checks import LaunchInspection, LaunchRequest, _identity
+from runtime.codex_restore.codexlib.iterm import ITerm
+from tests.restore.helpers import TerminalTools
+from tests.support import Fixture
+
+for root in ('iterm2_utils', 'runtime'):
+    for path in pathlib.Path(root).rglob('*.py'):
+        if path.name != '__main__.py':
+            module = importlib.import_module('.'.join(path.with_suffix('').parts))
+            assert pathlib.Path(module.__file__).resolve().is_relative_to(pathlib.Path.cwd())
+assert issubclass(launch.LaunchITerm, ITerm)
+with Fixture() as f:
+    paths = resolve_paths()
+    assert not (paths.data/'receipt.json').exists()
+    handoff = f.home/'поручение.md'
+    handoff.write_text('PRIVATE_HANDOFF_SENTINEL')
+    request = LaunchRequest('W1', 'Codex fixture', f.home, handoff)
+    tools = TerminalTools(f.home)
+    sid = '11111111-1111-4111-8111-111111111111'
+    tools.set_inventory([dict(id=sid, tab_id='T-new', window_id='W1')],
+                        [dict(id='T-new', index=0, window_id='W1')], [dict(id='W1')])
+    tools.it2.write_text(tools.it2.read_text()+'''
+    elif command == "profile-show":
+        print(json.dumps(dict(name="Codex fixture", guid="profile-one", command="codex OTHER")))
+    elif command == "session-get-var":
+        values = {"session.profileName": "Codex fixture", "session.jobName": "codex",
+                  "session.processTitle": "codex", "session.commandLine": COMMAND_LINE}
+        print(json.dumps(values[sys.argv[3]]))
+'''.replace('COMMAND_LINE', repr('codex -C '+str(f.home)+' Read the handoff file at '+str(handoff)+' and carry out the task described there.')))
+    identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.166.0',
+        home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
+        functions={}, alias='', restore_root='', python=''))
+    inspection = LaunchInspection(tools.it2, f.bin/'zsh', 'profile-one', identity)
+    # Only preflight is adapted; launch uses the bundled transport and real fake-it2 subprocesses.
+    with patch.object(launch, 'inspect_launch', return_value=(inspection, [])):
+        code, result = launch.launch(request, paths, f.runner)
+    assert (code, result['status']) == (0, 'launched'), result
+    assert (result['window_id'], result['tab_id'], result['session_id']) == ('W1', 'T-new', sid)
+    creates = [row for row in tools.calls() if row[1:3] == ['tab', 'new']]
+    assert len(creates) == 1, creates
+    assert creates[0][3:8] == ['--window', 'W1', '--profile', request.profile, '--command']
+    assert 'CODEX_RESTORE_NO_AUTO=1' in creates[0][8]
+    assert '--no-alt-screen' not in creates[0][8]
+    assert 'PRIVATE_HANDOFF_SENTINEL' not in json.dumps(result)+creates[0][8]
+    assert not (paths.data/'receipt.json').exists()
+"""
+
 
 class ExportTests(unittest.TestCase):
     def test_export_requires_unique_native_contract_paths(self):
         required = {'runtime/native_status.py', 'tests/test_native_status.py',
                     'tests/test_native_status_migration.py', 'tests/fixtures/beta1-status.json',
-                    'docs/native-status-events.md'}
+                    'docs/native-status-events.md', 'iterm2_utils/launch.py',
+                    'iterm2_utils/launch_checks.py', 'skills/iterm2-launch/SKILL.md',
+                    'skills/iterm2-launch/references/handoff.md', 'tests/test_launch.py',
+                    'tests/test_launch_checks.py', 'tests/restore/test_iterm.py'}
         self.assertTrue(required <= set(check_export.EXPORT_FILES))
         self.assertEqual(len(check_export.EXPORT_FILES), len(set(check_export.EXPORT_FILES)))
         sources = {entry['path']: entry for entry in json.loads((ROOT/'sources.lock.json').read_text())['sources']}
@@ -63,6 +117,7 @@ class ExportTests(unittest.TestCase):
             for name in ('.env', '.env.production', '.git/config', 'tests/fixtures/private.json',
                          'runtime/.env.py', 'runtime/receipt.json', 'runtime/backup.py',
                          'logs/transcript.jsonl', 'auth/token', 'runtime/__pycache__/secret.pyc',
+                         'docs/superpowers/validation/private.md', 'memory/private.md',
                          'runtime/raw-event.json', 'runtime/cc-status', 'runtime/it2',
                          'runtime/assets/appearance/foreign.png', 'source-rules.json', 'config/appearance.json',
                          'data/receipt.json',
@@ -147,6 +202,62 @@ class ExportTests(unittest.TestCase):
         home.mkdir(exist_ok=True)
         return subprocess.run([sys.executable, *args], cwd=extracted, env=self.isolated_env(home),
                               text=True, capture_output=True, timeout=120)
+
+    def test_extracted_release_launch_without_restore_install(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp); repo = self.fixture(root)
+            archive = build_release.build(repo, root/'dist')
+            extracted = self.extract(archive, root/'extract')
+            repo.rename(root/'checkout-unavailable')
+            result = self.run_python(extracted, root/'home', '-c', LAUNCH_SMOKE)
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            for args in ([], ['--skill', 'iterm2-launch']):
+                result = self.run_python(extracted, root/'home', '-m', 'iterm2_utils',
+                                        'bootstrap-skill', '--agent', 'codex', '--json', *args)
+                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            for skill in ('iterm2-setup', 'iterm2-launch'):
+                source = extracted/'skills'/skill
+                for path in source.rglob('*.md'):
+                    installed = root/'home/.codex/skills'/skill/path.relative_to(source)
+                    self.assertEqual(installed.read_bytes(), path.read_bytes())
+            result = self.run_python(extracted, root/'home', 'tools/check_skill.py')
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            (extracted/'skills/iterm2-launch/SKILL.md').write_text('invalid')
+            result = self.run_python(extracted, root/'home', 'tools/check_skill.py')
+            self.assertNotEqual(result.returncode, 0, 'Default validator missed broken launch skill')
+            result = self.run_python(extracted, root/'home', 'tools/check_skill.py', 'skills/iterm2-setup')
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
+    def test_launch_and_standalone_restore_after_source_removed(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp); repo = self.fixture(root)
+            archive = build_release.build(repo, root/'dist')
+            extracted = self.extract(archive, root/'extract')
+            repo.rename(root/'checkout-unavailable')
+            shutil.rmtree(root/'checkout-unavailable')
+            shutil.rmtree(root/'dist')
+            script = LAUNCH_SMOKE+r'''
+import shutil
+from tests.test_lifecycle import LifecycleFixture
+from tests.restore import test_cli
+installed = LifecycleFixture(); installed.setUp()
+restore = test_cli.CLITests(); restore.setUp()
+try:
+    installed.assertSuccess(installed.install('restore'))
+    wrapper = installed.context.paths.data/'current/codex_restore/codex-sessions'
+    assert wrapper.is_file()
+    shutil.rmtree(pathlib.Path.cwd())
+    result = restore.command('--help', executable=wrapper)
+    assert result.returncode == 0, result.stderr
+    with patch.object(test_cli, 'WRAPPER', wrapper):
+        restore.test_restore_cli_nul_protocol_list_and_cancel()
+    assert not any('checkout-unavailable' in row for row in sys.path)
+finally:
+    restore.doCleanups()
+    installed.doCleanups()
+'''
+            result = self.run_python(extracted, root/'home', '-c', script)
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
 
     def test_fresh_extract_has_no_source_checkout_dependency(self):
         with TemporaryDirectory() as tmp:
