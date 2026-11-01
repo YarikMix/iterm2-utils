@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+Added `launch-codex` and the separately installed Codex-only `iterm2-launch`
+skill: one new tab in an explicit window/profile, preserved login-zsh wrapper,
+unique handoff/receipt instructions and bounded observations without automatic
+retry. Launch requires source-verified Codex 0.166.0 and compatible existing
+clipboard settings; effective config initialization may write normal Codex
+state/log databases. Default bootstrap still installs only `iterm2-setup`.
+Release fixtures cover launch through the bundled transport without restore
+installation and installed restore after source/archive removal. Both skills
+are structurally checked; model behavior and live clipboard remain unverified.
+
 Codex status uses the native cc-status backend from a compatible iTerm2 3.7.6+
 bundle, including native done and background-task handling. Owned beta.1 status
 migrates through update; external legacy remains reused until explicit

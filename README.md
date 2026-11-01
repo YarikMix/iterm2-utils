@@ -40,6 +40,67 @@ receipt в data/bootstrap-skill. Для обновления skill повтор�
 общий каталог `~/.agents/skills` — это альтернативное размещение, не вторая копия
 поверх bootstrap. Для Claude используется его штатный `~/.claude/skills`.
 
+Для поручения задачи самостоятельному Codex в новой вкладке есть отдельный
+[iterm2-launch](skills/iterm2-launch/SKILL.md). Установка только для Codex:
+
+```sh
+python3 -m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex --dry-run --json
+python3 -m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex
+```
+
+Без `--skill` bootstrap по-прежнему копирует только `iterm2-setup`. Копии навыков
+и их receipts независимы; bootstrap не включает функции терминала. Для запуска
+нужны macOS, zsh, Python 3.11+, iTerm2 с совместимым bundled `it2` (контракт
+проверен по v3.7.6) и **Codex 0.166.0**. Другие версии Codex блокируются как
+непроверенные. Профиль должен уже существовать с совместимыми Cmd+C/Ctrl+C EN/RU,
+`CopySelection = false`; эффективные TUI-настройки Codex должны сохранять
+alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = never`.
+При блокере используйте `iterm2-setup` с явно выбранными функциями, например
+`clipboard`. Launch ничего не устанавливает; restore и его receipt не требуются.
+
+Из checkout или распакованного релиза:
+
+```sh
+python3 -m iterm2_utils launch-codex --window WINDOW_ID --profile PROFILE_NAME --cwd ABS_DIR --handoff ABS_FILE --json
+```
+
+Все четыре значения обязательны. Окно выбирается по явному ID; текущая активная
+вкладка не используется как fallback. `cwd` — существующий абсолютный каталог,
+`handoff` — читаемый обычный файл по абсолютному пути, не symlink. Навык готовит
+уникальные handoff/ack и отдельно проверяет свежее подтверждение принятия задачи
+по [формату handoff](skills/iterm2-launch/references/handoff.md).
+
+Создаётся одна новая сессия с выбранным профилем с самого начала. Команда профиля
+переопределяется; Codex запускается через сохранённую функцию в interactive login
+zsh с `codex -C ...` и поручением прочитать файл. Только дочернему процессу
+передаётся `CODEX_RESTORE_NO_AUTO=1`, чтобы startup restore не запустил второй
+Codex. Launcher не добавляет `--no-alt-screen`, resume, model/API/config overrides
+или отключение защит. Поддерживаются direct binary, точные поставляемые
+dispatcher/restore и их цепочки, простой passthrough и wrapper только с
+`--no-daemon`; неизвестные или меняющие профиль wrappers блокируются.
+
+Проверка effective config выполняет обычную инициализацию app-server и
+`config/read` в выбранном login shell/cwd, без thread/turn start. Она может
+создавать штатные state/log/recovery SQLite-файлы Codex и выполнять shell startup;
+это не filesystem-read-only команда. Перед запуском повторно проверяется identity
+shell/executable/config-home. Профиль сверяется с материализованным preference
+snapshot по уникальным name/GUID; устаревший внешний plist и конкурентное изменение
+runtime bindings не исключены. Подробнее — [границы проверки](docs/compatibility.md).
+
+| JSON `status` / exit | Что подтверждено |
+| --- | --- |
+| `launched` / 0 | В нужном окне найден единственный созданный session ID, совпадают profile name/GUID, наблюдается job `codex` |
+| `created_unverified` / 3 | Известна созданная вкладка/сессия, но наблюдений для `launched` недостаточно |
+| `unknown` / 3 | Исход создания неопределён; известные ID сохранены, если доступны |
+| `blocked` / 2 | Prerequisite не выполнен; вкладка не создаётся |
+
+`window_id`, `tab_id`, `session_id`, `profile` и ограниченные findings возвращаются
+без handoff, полных настроек/экрана и stderr внешних команд. `launched` не доказывает
+получение поручения или работу clipboard. При неопределённом исходе сначала
+осмотрите известные ID: не повторяйте запуск/поручение автоматически, не закрывайте
+вкладку и не завершайте процессы пользователя. Новая сессия, handoff и ack остаются
+для диагностики. Живое копирование и поведение агента пока не проверены.
+
 При ручном запуске CLI сначала выберите функции:
 
 ```sh
