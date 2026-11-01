@@ -9,6 +9,24 @@ from iterm2_utils.cli import main
 
 
 class CliTests(unittest.TestCase):
+    def test_launch_modes_are_exclusive(self):
+        common = ['launch-codex', '--window', 'w', '--profile', 'Codex', '--cwd', '/tmp']
+        sid = 'abcdefab-1234-4123-8123-abcdefabcdef'
+        with Fixture() as f, patch('iterm2_utils.launch.launch') as launch:
+            for mode in ([], ['--handoff', '/tmp/task', '--resume', sid], ['--resume', 'invalid']):
+                with self.subTest(mode=mode):
+                    code, out, err = self.invoke(f, common+mode)
+                    self.assertEqual(code, 2, out+err)
+            launch.assert_not_called()
+            launch.return_value = (2, dict(mode='launch_codex', status='blocked', findings=[]))
+            code, out, err = self.invoke(f, common+['--resume', sid.upper(), '--json'])
+            self.assertEqual(code, 2, err)
+            self.assertTrue(launch.called, 'Resume must dispatch a normalized request')
+            request = launch.call_args.args[0]
+            self.assertEqual(request.resume_session_id, sid)
+            self.assertEqual(request.launch_mode, 'resume')
+            self.assertIsNone(request.handoff)
+
     def test_appearance_config_rejected_without_explicit_feature_before_discovery(self):
         with Fixture() as f, patch('iterm2_utils.cli.discover') as discover:
             code,out,err=self.invoke(f,['plan','--agent','codex','--features','shell','--appearance-config','/unused.json','--json'])

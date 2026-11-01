@@ -13,7 +13,7 @@ def normalize_uuid(value: str) -> str:
     return str(UUID(value))
 
 
-def validate(path: Path, session_id: str, codex_home: Path, cwd: Path) -> Optional[Session]:
+def validate(path: Path, session_id: str, codex_home: Path, cwd: Path, *, header=None) -> Optional[Session]:
     try:
         sid = normalize_uuid(session_id)
         home = codex_home.resolve()
@@ -23,8 +23,9 @@ def validate(path: Path, session_id: str, codex_home: Path, cwd: Path) -> Option
         resolved.relative_to((home / "sessions").resolve())
         # Also require the resolved sessions directory to stay in CODEX_HOME.
         resolved.relative_to(home / "sessions")
-        with resolved.open(encoding="utf-8") as stream:
-            header = json.loads(stream.readline())
+        if header is None:
+            with resolved.open(encoding="utf-8") as stream:
+                header = json.loads(stream.readline())
         if not isinstance(header, dict) or header.get("type") != "session_meta":
             return None
         payload = header.get("payload")

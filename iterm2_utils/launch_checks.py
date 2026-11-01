@@ -12,6 +12,8 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from runtime.codex_restore.codexlib import transcripts
+
 from .commands import Runner
 from .config import preferences
 from .discovery import _iterm, platform
@@ -21,6 +23,8 @@ DOMAIN = 'com.googlecode.iterm2'
 FUNCTIONS = ('codex', '_iterm2_utils_classify', '_codex_restore_previous',
              '_codex_restore_call', '_codex_restore_classify',
              '_codex_restore_previous_call', '_codex_restore_sessions')
+_RESUME_TIMEOUT = 10
+_HEADER_LIMIT = 64 * 1024  # A malformed header must not consume an entire conversation.
 
 
 @dataclass(frozen=True)
@@ -28,7 +32,12 @@ class LaunchRequest:
     window_id: str
     profile: str
     cwd: Path
-    handoff: Path
+    handoff: Path | None = None
+    resume_session_id: str | None = None
+
+    @property
+    def launch_mode(self) -> str:
+        return 'resume' if self.resume_session_id is not None else 'handoff'
 
 
 @dataclass(frozen=True)
@@ -63,7 +72,14 @@ def _valid_name(value):
 def validate_request(request: LaunchRequest) -> None:
     if not _valid_name(request.window_id) or not _valid_name(request.profile):
         raise ValueError('launch_invalid_target')
-    for path in (request.cwd, request.handoff):
+    if (request.handoff is None) == (request.resume_session_id is None):
+        raise ValueError('launch_invalid_mode')
+    if request.resume_session_id is not None:
+        try:
+            transcripts.normalize_uuid(request.resume_session_id)
+        except ValueError:
+            raise ValueError('launch_invalid_resume') from None
+    for path in (request.cwd, *([request.handoff] if request.handoff is not None else [])):
         if not isinstance(path, Path) or not path.is_absolute() or '\0' in str(path):
             raise ValueError('launch_invalid_path')
     try:
@@ -71,6 +87,8 @@ def validate_request(request: LaunchRequest) -> None:
             raise ValueError('launch_invalid_cwd')
     except OSError:
         raise ValueError('launch_invalid_cwd') from None
+    if request.handoff is None:
+        return
     try:
         info = request.handoff.lstat()
         if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o444:
@@ -84,6 +102,69 @@ def validate_request(request: LaunchRequest) -> None:
             os.close(fd)
     except OSError:
         raise ValueError('launch_invalid_handoff') from None
+
+
+def _resume_lookup(codex_home: Path, cwd: Path, session_id: str) -> bool:
+    """Run only in a bounded worker; directory descriptors prevent symlink races."""
+    def walk(directory, path):
+        count = 0
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(info.st_mode):
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                    dir_fd=directory)
+                    try:
+                        count += walk(child, path/entry.name)
+                    finally:
+                        os.close(child)
+                elif re.search(r'(?:^|-)'+re.escape(session_id)+r'\.jsonl$', entry.name.lower()):
+                    if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o444:
+                        raise ValueError('unsafe transcript')
+                    fd = os.open(entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                 dir_fd=directory)
+                    with os.fdopen(fd, 'rb', buffering=0) as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            raise ValueError('unsafe transcript')
+                        header = stream.readline(_HEADER_LIMIT+1)
+                    if len(header) > _HEADER_LIMIT:
+                        raise ValueError('oversized header')
+                    header = json.loads(header)
+                    if not isinstance(header, dict):
+                        raise ValueError('invalid header')
+                    if transcripts.validate(path/entry.name, session_id, codex_home, cwd, header=header):
+                        count += 1
+                if count > 1:
+                    return count
+        return count
+
+    try:
+        home = codex_home.resolve()
+        sessions = home/'sessions'
+        directory = os.open(sessions, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            return walk(directory, sessions) == 1
+        finally:
+            os.close(directory)
+    except (OSError, ValueError, TypeError, RuntimeError, RecursionError):
+        return False
+
+
+def validate_resume(request: LaunchRequest, identity: LaunchIdentity) -> None:
+    sid = transcripts.normalize_uuid(request.resume_session_id)
+    code = ('import sys; from pathlib import Path; '
+            f'sys.path.insert(0, {str(Path(__file__).resolve().parent.parent)!r}); '
+            'from iterm2_utils.launch_checks import _resume_lookup; '
+            'sys.exit(0 if _resume_lookup(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]) else 2)')
+    try:
+        result = subprocess.run([sys.executable, '-c', code, str(identity.codex_home), str(request.cwd), sid],
+                                timeout=_RESUME_TIMEOUT, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            return
+    except (OSError, subprocess.SubprocessError):
+        pass
+    raise ValueError('launch_resume_unverified')
 
 
 def check_profile(profile: dict) -> list[Finding]:
@@ -204,7 +285,12 @@ def _check_wrapper(raw, reference, paths):
             source = paths.repo/'runtime/codex_restore'
             for file in source.rglob('*'):
                 if file.is_file() and '__pycache__' not in file.parts and (file.suffix in {'.py', '.zsh'} or file.name == 'codex-sessions'):
-                    if (root/file.relative_to(source)).read_bytes() != file.read_bytes():
+                    relative = file.relative_to(source)
+                    installed = (root/relative).read_bytes()
+                    # e90b332 sources.lock.json pins this helper before the optional header API.
+                    previous = relative.as_posix() == 'codexlib/transcripts.py' and hashlib.sha256(installed).hexdigest() == (
+                        'e68b9119054a44cfa90897a79887fd7437e64695f449f5fddc6b55e029e59f74')
+                    if installed != file.read_bytes() and not previous:
                         valid = False
                         break
     if not valid:
@@ -233,9 +319,6 @@ def inspect_launch(paths: Paths, request: LaunchRequest, runner: Runner) -> tupl
                 raise ValueError('launch_protocol')
             return result.stdout
 
-        help_text = query(['tab', 'new', '--help'])
-        if not {'--window', '--profile', '--command'} <= set(re.findall(r'--[a-z-]+', help_text)):
-            return None, [_finding('launch_protocol', 'The it2 creation protocol is unsupported.')]
         windows = json.loads(query(['window', 'list', '--json']))
         if not isinstance(windows, list) or sum(isinstance(w, dict) and w.get('id') == request.window_id for w in windows) != 1:
             return None, [_finding('launch_window', 'The explicit target window is unavailable or ambiguous.')]
@@ -270,7 +353,7 @@ def inspect_launch(paths: Paths, request: LaunchRequest, runner: Runner) -> tupl
                   'IFS= read -r _iterm2_launch_continue || exit 1\n'
                   '[[ $_iterm2_launch_continue == iterm2-utils-continue ]] || exit 1\n'
                   'codex app-server --stdio')
-        identity, config = runner.codex_config([zsh, '-ilc', script], timeout=15, env=env,
+        identity, config = runner.codex_config([zsh, '-ilc', script], timeout=10, env=env,
             cwd=request.cwd, check_identity=lambda raw: _check_wrapper(raw, reference, paths))
         tui = config.get('tui', {})
         if not isinstance(tui, dict):
@@ -279,6 +362,11 @@ def inspect_launch(paths: Paths, request: LaunchRequest, runner: Runner) -> tupl
             return None, [_finding('launch_tui_mode', 'Codex needs its fullscreen alternate-screen transcript; use iterm2-setup.', 'conflict')]
         if tui.get('copy_on_select', 'auto') != 'never':
             return None, [_finding('launch_copy_on_select', 'Set effective Codex tui.copy_on_select to never using iterm2-setup.', 'conflict')]
+        if request.resume_session_id is not None:
+            try:
+                validate_resume(request, identity)
+            except ValueError:
+                return None, [_finding('launch_resume_unverified', 'The requested interactive transcript is unavailable, unsafe or ambiguous.')]
         return LaunchInspection(it2, Path(zsh), guid, identity), []
     except (OSError, ValueError, TypeError, KeyError, AttributeError, TimeoutError, subprocess.SubprocessError):
         return None, [_finding('launch_config_unverified', 'Effective Codex configuration or shell wrapper could not be verified; use iterm2-setup.')]
