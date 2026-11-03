@@ -9,6 +9,7 @@
 | `mcp` | Separately selected terminal-reading MCP for selected agents | uvx; server Python 3.12+, Python API and human authorization |
 | `shell` | Official zsh command marks/navigation in iTerm2 | zsh and iTerm2 |
 | `shortcuts` | Explicit subset: ctrl-v-ru, alt-enter, ctrl-q, resume | Detected compatible agent version for alt-enter |
+| `project-launcher` | Explicit project buttons create a new login-shell tab in the same window | Private local JSON; iTerm2 3.7.6, selected Python 3.11+ with SDK/API |
 | `appearance` | Repository color/composite icon at interactive shell start, ordinary cd and Codex start; outside resets the pair | Selected Python 3.11+ with `iterm2` SDK; enabled/authorized Python API |
 
 First release: macOS + zsh. Most agent integrations require the selected agent
@@ -80,7 +81,7 @@ install. It persists for updates for the chosen agents, preserves every foreign 
 duplicate banners. Never infer coexistence from ordinary notification opt-in or
 remove foreign hooks by command-name heuristics.
 
-## Repository appearance (eighth opt-in feature)
+## Repository appearance (opt-in feature)
 
 Only select `appearance` when requested; bootstrap selects none. First plan/install
 requires `--appearance-config /path/to/rules.json`, with this strict schema:
@@ -143,3 +144,44 @@ outside reset. Selected installation preserved all seven rules. Standalone ios
 was checked in asset tests/contact sheets; unchanged pairs retain their historical
 acceptance. Actual theme switching and fresh Codex/APS/restore runs were not repeated
 for this artwork change; see docs/compatibility.md for the precise scope.
+
+
+## Project launcher (ninth opt-in feature)
+
+Only select `project-launcher` explicitly. First plan/install requires
+`--project-launcher-config /path/to/projects.json`. Never publish real project
+names, paths, inventory or local JSON. Fictional example:
+
+```json
+{"profiles":["Default"],"projects":[{"id":"project-a","name":"Project A","path":"/path/to/project-a"},{"id":"project-b","name":"Project B","path":"/path/to/project-b"}]}
+```
+
+Both lists are nonempty. Existing target profile names, project ids and button
+names must be unique; paths are existing absolute directories, never commands.
+Unknown/duplicate fields, control characters and wrong types block writes.
+`--parent-profile Default` chooses an existing ordinary shell parent by verified
+GUID; project profiles override inherited custom commands with login shell.
+Buttons use native action27 and open a new active tab in the same window on
+every click. Existing foreign layout components/advanced settings are preserved.
+
+Use macOS/zsh, iTerm2 exactly3.7.6 and an existing Python3.11+ with official
+`iterm2`, selected with ITERM2_UTILS_PYTHON where needed. Enable/authorize Python
+API manually. No SDK installation or app launch happens automatically.
+Bootstrap selects none. To add/change projects, edit the private source and
+repeat plan/install with the flag; stable ids preserve GUIDs. Update/repeat
+without a flag reads an owned0600 copy even after source removal. Plan/dry-run
+write nothing; installed files and grouped native panel fields use CAS.
+
+Shared consumers are explicit agent×feature pairs. Partial uninstall preserves
+another consumer. Full uninstall restores only confirmed installed bar fields
+before deleting profile targets. Late edits, external/hidden references,
+live/buried profile sessions or unavailable inventory retain resources/receipt;
+do not erase foreign buttons or close processes automatically. Resolve the
+local conflict and retry. An uncertain native write retains durable recovery
+intent without immediate retry.
+
+Native readback and fixtures do not establish visual acceptance. The new CLI
+live install/update/uninstall and actual clicks remain unverified. If a folder
+later disappears iTerm2 warns and opens home. Narrow windows may hide buttons;
+Profiles is the fallback. No browser/localhost is needed. Full package guide:
+`docs/project-launcher.md` in the checkout/release (not copied by skill bootstrap).

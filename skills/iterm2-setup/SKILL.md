@@ -1,6 +1,6 @@
 ---
 name: iterm2-setup
-description: Use when setting up, checking, updating or removing selective iTerm2 integrations for Codex CLI or Claude Code on macOS with zsh, including clipboard, status, notifications, restore, MCP, shell integration, shortcuts and repository tab appearance.
+description: Use when setting up, checking, updating or removing selective iTerm2 integrations for Codex CLI or Claude Code on macOS with zsh, including clipboard, status, notifications, restore, MCP, shell integration, shortcuts, repository tab appearance and project launcher buttons.
 ---
 
 # iTerm2 setup
@@ -16,7 +16,7 @@ No private skills, corporate services or workspace framework are required.
 2. Ask which **detected agents and features** the colleague wants. Preserve choices
    already explicit in the request. Explain only the relevant choices from
    [features](references/features.md); never infer all features from “setup”.
-   Bootstrap copies the skill only; it authorizes none of the eight features.
+   Bootstrap copies the skill only; it authorizes none of the nine features.
 3. List missing dependencies for the chosen features before installing them with
    an existing package manager. Keep the chosen agents and features; dependencies
    do not justify a second agent, a different feature or installing Peekaboo.
@@ -30,6 +30,13 @@ No private skills, corporate services or workspace framework are required.
    on first plan/install; validate the JSON and selected Python SDK prerequisite
    from [features](references/features.md). Preserve that explicit path for the
    matching dry-run/install; never publish its contents or personal roots.
+   For selected `project-launcher`, use a private local JSON and explicit
+   `--project-launcher-config /path/to/projects.json` for first plan/install.
+   Read the strict schema/prerequisites in [features](references/features.md).
+   Keep actual project names, folders and inventory local; use fictional
+   Project A / Project B in public examples. To add a project, edit that local
+   config and repeat plan/install with the flag; update reuses the owned copy.
+   API readback is not visual acceptance; report unverified live behavior.
    Existing appearance also follows ordinary cd: registered roots/subdirectories
    apply their pair; outside resets Tab Color/custom icon, including light/dark.
    No new flag/schema is needed. Preserve foreign shell hooks and settings.

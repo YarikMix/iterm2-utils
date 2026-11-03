@@ -10,7 +10,7 @@ from .models import ChangeSet, Finding, Outcome, Plan, Receipt, Selection, FileE
 from .planner import FEATURES, plan, validate
 
 BLOCKING = {'conflict','missing_dependency','unavailable'}
-ORDER = ('shell','clipboard','shortcuts','status','notifications','restore','mcp','appearance')
+ORDER = ('shell','clipboard','shortcuts','status','notifications','restore','mcp','appearance','project-launcher')
 
 
 def _empty():
@@ -23,6 +23,20 @@ def _load(context):
 
 def _problem(receipt, code='ownership_unavailable', message='No valid ownership receipt is available.'):
     return Outcome(receipt or _empty(),[Finding('selection',None,code,'conflict',message)])
+
+
+def _recover_pending(context, runner, dry_run):
+    # Recover before builders reject partial files or require the missing receipt.
+    if dry_run or not (context.paths.data/'journal').exists():
+        return None
+    try:
+        with engine._lock(context):
+            findings = engine._recover(context,runner)
+            if findings:
+                return Outcome(_load(context) or _empty(),findings)
+    except (ValueError,OSError,RuntimeError):
+        return _problem(None,'recovery_unavailable','Pending transaction recovery could not be completed; resolve it before retrying.')
+    return None
 
 
 def _context(context):
@@ -66,11 +80,16 @@ def native_entries(context):
 
 
 def install(context, selection, runner, *, dry_run=False):
+    recovery = _recover_pending(context,runner,dry_run)
+    if recovery is not None:
+        return recovery
     try:
         expected_receipt = _load(context)
         previous = expected_receipt or _empty()
     except (ValueError,OSError):
         return _problem(None)
+    if context.project_launcher_config is not None and 'project-launcher' not in selection.features:
+        return _problem(previous,'project_launcher_config_selection','A project configuration requires an explicit project-launcher selection.')
     if context.appearance_config is not None and 'appearance' not in selection.features:
         return _problem(previous,'appearance_config_selection','An appearance configuration requires an explicit Codex appearance selection.')
     invalid = [f for f in validate(selection,context) if f.code in {'invalid_agents','invalid_features','invalid_shortcuts','invalid_parent'}]
@@ -102,7 +121,8 @@ def install(context, selection, runner, *, dry_run=False):
         requested = replace(selection, agents=frozenset({agent}))
         chosen = working.selection.merge(requested, active)
         active_pairs = frozenset(agent+':'+f for f in active)
-        prepared = plan(_context(context),chosen)
+        from .features.project_launcher import prepare
+        prepared = plan(prepare(_context(context),chosen,runner),chosen)
         # Codex-only means Claude is untouched when both agents were requested.
         shared_codes = {'shell_conflict','hook_conflict','no_daemon'} if feature in {'status','notifications','restore','appearance'} else set()
         if feature in {'clipboard','shortcuts'}:
@@ -184,6 +204,9 @@ def install(context, selection, runner, *, dry_run=False):
 
 
 def update(context, runner, *, dry_run=False):
+    recovery = _recover_pending(context,runner,dry_run)
+    if recovery is not None:
+        return recovery
     try:
         receipt = _load(context)
     except (ValueError,OSError):
@@ -196,6 +219,9 @@ def update(context, runner, *, dry_run=False):
 
 
 def uninstall(context, owners, runner, *, dry_run=False, agents=None):
+    recovery = _recover_pending(context,runner,dry_run)
+    if recovery is not None:
+        return recovery
     try:
         receipt = _load(context)
     except (ValueError,OSError):
@@ -216,6 +242,8 @@ def uninstall(context, owners, runner, *, dry_run=False, agents=None):
         return _problem(receipt,'legacy_status_restore_conflict',
             'External native hooks prevent restoring the adopted legacy status writer; resolve the competing integration before uninstalling.')
     # Recompose shared files and remove exclusive resources in ONE transaction.
+    from .features.project_launcher import prepare
+    refreshed = prepare(refreshed,selection,runner)
     prepared = plan(refreshed,selection) if selection.features else Plan(selection,ChangeSet([],[],[]),'uninstall')
     affected_shared = {owner for r in normalized if set(r['owners']) & remove_pairs
                        for owner in r['owners'] if owner.startswith('shared:')}
@@ -310,7 +338,8 @@ def reconcile_ui(context, code, runner):
 
 def doctor(context, receipt, runner):
     """Read-only verification; never recover journals or reconcile UI implicitly."""
-    prepared = plan(_context(context), receipt.selection)
+    from .features.project_launcher import prepare
+    prepared = plan(prepare(_context(context),receipt.selection,runner), receipt.selection)
     findings = [f for f in prepared.changes.findings if f.state in BLOCKING or f.state == 'limited'
                 or f.code in {'status_backend','native_status_capability'}
                 or f.code == 'native_status' and f.state == 'pending_ui']
@@ -339,10 +368,10 @@ def doctor(context, receipt, runner):
             if not engine._same(current, resource['installed']):
                 missing = resource['installed']['exists'] and not current['exists']
                 findings.append(Finding(feature, agent, 'owned_resource_missing' if missing else 'owned_resource_changed',
-                    'conflict', ('Owned appearance resource is missing.' if missing else 'Owned appearance resource differs from the receipt.') if feature == 'appearance' else 'Owned resource is missing: ' + resource['target'] if missing else 'Owned resource differs from the receipt: ' + resource['target']))
+                    'conflict', ('Owned selected resource is missing.' if missing else 'Owned selected resource differs from the receipt.') if feature in {'appearance','project-launcher'} else 'Owned resource is missing: ' + resource['target'] if missing else 'Owned resource differs from the receipt: ' + resource['target']))
         except (OSError, ValueError, TypeError, RuntimeError):
             findings.append(Finding(feature, agent, 'resource_unavailable', 'unavailable',
-                'Owned appearance resource could not be inspected.' if feature == 'appearance' else 'Owned resource could not be inspected: '+resource['target']))
+                'Owned selected resource could not be inspected.' if feature in {'appearance','project-launcher'} else 'Owned resource could not be inspected: '+resource['target']))
     # Identical external registrations may be reused without receipt ownership.
     for agent in sorted(receipt.selection.agents_for('mcp')):
         try:

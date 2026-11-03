@@ -323,3 +323,61 @@ class EngineTests(unittest.TestCase):
         self.assertFalse(second.exists())
         self.assertTrue(any(f.code=='apply_conflict' for f in result.findings))
         self.assertEqual(state.load(self.context.paths.data/'receipt.json'),initial.receipt)
+
+
+class NativeResourceTests(unittest.TestCase):
+    setUp = EngineTests.setUp
+    plan = EngineTests.plan
+
+    def test_native_resources_compile_as_group_and_restore_exact_types(self):
+        before = {'Show Status Bar': False, 'Status Bar Layout': {'components': []}}
+        after = dict(before, **{'Show Status Bar': True})
+        bar = engine._compile(ProfileBarEdit('profile-one', before, after, 'clipboard'))
+        position = engine._compile(StatusBarPositionEdit(0, 1, 'clipboard'))
+        self.assertEqual(len(bar), 1)
+        self.assertEqual(bar[0]['kind'], 'profile_bar')
+        self.assertEqual(bar[0]['installed']['value'], after)
+        self.assertEqual(position[0]['kind'], 'status_bar_position')
+        from iterm2_utils.config import iterm
+        current = {'bar': before, 'position': 0}
+        def read_bar(*args): return {'exists': True, 'value': current['bar']}
+        def read_position(*args): return {'exists': True, 'value': current['position']}
+        def write_bar(guid, value, context, runner, *, expected): current['bar'] = value
+        def write_position(value, context, runner, *, expected): current['position'] = value
+        with patch.object(iterm, 'read_bar', side_effect=read_bar), patch.object(iterm, 'write_bar', side_effect=write_bar), \
+                patch.object(iterm, 'read_position', side_effect=read_position), patch.object(iterm, 'write_position', side_effect=write_position):
+            result = engine.apply(self.plan([ProfileBarEdit('profile-one', before, after, 'clipboard'),
+                                            StatusBarPositionEdit(0, 1, 'clipboard')]), self.context, None)
+            self.assertFalse(result.findings)
+            self.assertEqual(current, {'bar': after, 'position': 1})
+            restored = engine.revert(result.receipt, self.context, None, frozenset({'clipboard'}))
+            self.assertFalse(restored.findings)
+            self.assertEqual(current, {'bar': before, 'position': 0})
+
+    def test_unknown_native_dispatch_retains_intent_without_immediate_inverse(self):
+        from iterm2_utils.config import iterm
+        before = {'Show Status Bar': False, 'Status Bar Layout': {}}
+        after = dict(before, **{'Show Status Bar': True})
+        current = {'value': before}
+        def write(*args, **kwargs):
+            current['value'] = after
+            raise iterm.MutationUnknown()
+        with patch.object(iterm, 'read_bar', side_effect=lambda *a: {'exists': True, 'value': current['value']}), \
+                patch.object(iterm, 'write_bar', side_effect=write) as mutation:
+            result = engine.apply(self.plan([ProfileBarEdit('profile-one', before, after, 'clipboard')]), self.context, None)
+            self.assertEqual(mutation.call_count, 1)
+            self.assertEqual(current['value'], after)
+            self.assertTrue((self.context.paths.data/'journal/intent.json').is_file())
+            self.assertTrue(any(f.code == 'native_outcome_unknown' for f in result.findings))
+        with patch.object(iterm, 'read_bar', return_value={'exists': True, 'value': before}):
+            self.assertEqual(engine._recover(self.context, None), [])
+            self.assertFalse((self.context.paths.data/'journal').exists())
+
+    def test_native_invalid_values_fail_compile(self):
+        before = {'Show Status Bar': False, 'Status Bar Layout': {}}
+        for invalid in (None, {}, dict(before, **{'Show Status Bar': 0})):
+            with self.assertRaises(ValueError):
+                engine._compile(ProfileBarEdit('profile-one', invalid, before, 'clipboard'))
+        for invalid in (None, False, '0', 2):
+            with self.assertRaises(ValueError):
+                engine._compile(StatusBarPositionEdit(invalid, 1, 'clipboard'))

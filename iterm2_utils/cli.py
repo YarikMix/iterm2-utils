@@ -51,6 +51,7 @@ def main(argv=None):
             command_parser.add_argument('--shortcuts',default='',help=', '.join(sorted(SHORTCUTS)))
             command_parser.add_argument('--parent-profile')
             command_parser.add_argument('--appearance-config', type=Path)
+            command_parser.add_argument('--project-launcher-config', type=Path)
             command_parser.add_argument('--adopt-legacy',action='store_true')
             command_parser.add_argument('--coexist-notifications',action='store_true')
         elif command == 'uninstall':
@@ -89,6 +90,10 @@ def main(argv=None):
         finding = Finding('appearance',None,'appearance_config_selection','conflict','An appearance configuration requires an explicit appearance feature selection.')
         print(json.dumps({'mode':'invalid_selection','findings':[asdict(finding)]}) if args.json else finding.message)
         return 2
+    if getattr(args,'project_launcher_config',None) is not None and 'project-launcher' not in features:
+        finding = Finding('project-launcher',None,'project_launcher_config_selection','conflict','A project configuration requires an explicit project-launcher selection.')
+        print(json.dumps({'mode':'invalid_selection','findings':[asdict(finding)]}) if args.json else finding.message)
+        return 2
     runner = Runner()
     paths = resolve_paths()
     if args.command == 'launch-codex':
@@ -115,12 +120,14 @@ def main(argv=None):
             previous = None
         context = discover(paths,runner,agents=agents | (previous.selection.agents if previous else frozenset()))
         context.appearance_config = args.appearance_config
+        context.project_launcher_config = args.project_launcher_config
         selection = Selection(agents,features,shortcuts,args.parent_profile if args.parent_profile is not None else previous.selection.parent_profile if previous else 'Default',args.adopt_legacy,coexist_notifications=args.coexist_notifications)
         if args.command == 'plan':
             # Preview the same cumulative intent as install, with new choices
             # applied only to their explicitly requested agents.
             choice = previous.selection.merge(selection, selection.features) if previous else selection
-            prepared = plan(context,choice)
+            from .features.project_launcher import prepare
+            prepared = plan(prepare(context,choice,runner),choice)
             output = dict(mode='read_only_preview',selection=_selection(prepared.selection),
                           findings=[asdict(f) for f in prepared.changes.findings],
                           ui=[asdict(s) for s in prepared.changes.ui],fingerprint=prepared.fingerprint)

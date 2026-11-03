@@ -52,3 +52,20 @@ class StateTests(unittest.TestCase):
             candidate=copy.deepcopy(entry);alter(candidate)
             receipt=Receipt('1',Selection(frozenset({'claude'}),frozenset({'status'}),frozenset(),'Default'),[],[],{'claude-native-status':[candidate]})
             with self.assertRaises(ValueError):state.validate(receipt)
+
+    def test_native_resources_reject_absence_null_types_and_unknown_addresses(self):
+        import copy
+        bar = {'Show Status Bar': False, 'Status Bar Layout': {}}
+        for kind, target, value in (('profile_bar', 'profile-one', bar),
+                                    ('status_bar_position', 'com.googlecode.iterm2', 0)):
+            resource = dict(kind=kind, target=target, locator={}, before={'exists':True,'value':value},
+                            installed={'exists':True,'value':value}, owners=['project-launcher'], version='1')
+            receipt = Receipt('1',Selection(frozenset({'codex'}),frozenset({'project-launcher'}),frozenset(),'Default'),[resource],[])
+            state.validate(receipt)
+            for alter in (lambda r:r['before'].update(exists=False, value=None),
+                          lambda r:r['installed'].update(value=None),
+                          lambda r:r['locator'].update(key='foreign'),
+                          lambda r:r.update(target=''),
+                          lambda r:r['installed'].update(value=False if kind=='status_bar_position' else {'Show Status Bar':1,'Status Bar Layout':{}})):
+                bad = copy.deepcopy(receipt); alter(bad.resources[0])
+                with self.assertRaises(ValueError): state.validate(bad)
