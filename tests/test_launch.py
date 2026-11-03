@@ -70,8 +70,12 @@ else:
     print(json.dumps({'id': request['id'], 'result': {'config': {'tui': {'copy_on_select': 'never'}}}}), flush=True)
     sys.stdin.read()
 ''')
+                # Isolate the fixture from host login startup while retaining its own .zshrc.
+                (f.home/'.zshenv').write_text('unsetopt GLOBAL_RCS\n')
+                startup = f.home/'zshrc-startup'
                 (f.home/'.zshrc').write_text(
                     'export PATH='+shlex.quote(str(f.bin))+':/usr/bin:/bin\n'
+                    'print -r -- "${options[globalrcs]}:${options[rcs]}:${TERM_SESSION_ID-unbound}" >> '+shlex.quote(str(startup))+'\n'
                     'source '+shlex.quote(str(paths.repo/'runtime/appearance.zsh'))+'\n')
                 os.environ.update(ZDOTDIR=str(f.home), TERM_PROGRAM='iTerm.app',
                                   ITERM_SESSION_ID='w0t0p0:'+SID, TERM_SESSION_ID=SID,
@@ -86,6 +90,7 @@ else:
                 self.assertEqual(json.loads((f.home/'protocol.json').read_text()), dict(cwd=str(project), ids=[None, None]))
                 self.assertEqual(json.loads(state_path.read_text()), initial)
                 self.assertFalse(mutations.exists(), 'preflight must not even invalidate a snapshot')
+                self.assertEqual(startup.read_text().splitlines(), ['off:on:unbound'])
                 def own_terminal():
                     os.setsid()
                     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
@@ -105,6 +110,7 @@ else:
                                   f'stdout tail={(exc.stdout or b"")[-4096:]!r}; '
                                   f'stderr tail={(exc.stderr or b"")[-4096:]!r}')
                 self.assertEqual((child.returncode, stdout, stderr), (0, '', ''))
+                self.assertEqual(startup.read_text().splitlines(), ['off:on:unbound', 'off:on:'+child_id])
                 final = json.loads(state_path.read_text())
                 self.assertEqual(final[SID], parent)
                 self.assertEqual(final[child_id]['profile']['tab_color'], [18, 52, 86])
