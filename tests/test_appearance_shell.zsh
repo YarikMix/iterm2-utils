@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Fake executables at the boundary; the dispatcher and zsh jobs are real.
 exec python3 - "$0" "$@" <<'PY'
-import errno, json, os, pathlib, pty, select, shutil, subprocess, sys, tempfile, time, unittest
+import errno, fcntl, json, os, pathlib, pty, select, shutil, subprocess, sys, tempfile, termios, time, unittest
 REPO = pathlib.Path(sys.argv[1]).resolve().parents[1]
 HELPER = r'''import json, os, pathlib, select, signal, sys, time
 root = pathlib.Path(__file__).parent
@@ -54,6 +54,12 @@ with (root/'calls').open('a') as out:
 print('native stderr',file=sys.stderr)
 sys.exit(42)
 '''
+class ShellProcess(subprocess.Popen):
+    def communicate(self, input=None, timeout=None):
+        if input is not None:
+            os.write(self.terminal_master, input.encode())
+        return super().communicate(timeout=timeout)
+
 class AppearanceShell(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(prefix='appearance shell ')
@@ -69,16 +75,95 @@ class AppearanceShell(unittest.TestCase):
         self.subdir=self.project/'subdir'; self.subdir.mkdir()
         self.other=self.root/'B'; self.other.mkdir()
         self.outside=self.root/'outside'; self.outside.mkdir()
-        self.env=dict(os.environ,HOME=str(self.root),PATH=str(self.root)+':/usr/bin:/bin',TERM_PROGRAM='iTerm.app',TEST_ROOT=str(self.root),ITERM2_UTILS_PYTHON=sys.executable,ITERM2_UTILS_APPEARANCE_CONFIG=str(self.root/'installed rules.json'),ITERM2_UTILS_CODEX_NO_DAEMON='1',TMUX='')
+        self.env=dict(os.environ,HOME=str(self.root),PATH=str(self.root)+':/usr/bin:/bin',TERM_PROGRAM='iTerm.app',TEST_ROOT=str(self.root),ITERM2_UTILS_PYTHON=sys.executable,ITERM2_UTILS_APPEARANCE_CONFIG=str(self.root/'installed rules.json'),ITERM2_UTILS_CODEX_NO_DAEMON='1',TMUX='',ITERM_SESSION_ID='w0t1p0:12345678-1234-1234-1234-123456789ABC',TERM_SESSION_ID='12345678-1234-1234-1234-123456789ABC')
+    def start_shell(self, argv, *, env=None, cwd=None):
+        master, slave = pty.openpty()
+        self.shell_tty=os.ttyname(slave)
+        self.addCleanup(os.close, master)
+        def own_terminal():
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        try:
+            process = ShellProcess(argv, env=env or self.env, cwd=cwd or self.link,
+                                   stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, preexec_fn=own_terminal)
+            process.terminal_master = master
+            return process
+        finally:
+            os.close(slave)
+
     def run_shell(self,body,interactive=True,terminal='iTerm.app',source=True):
         startup='source "$TEST_ROOT/appearance.zsh"; source "$TEST_ROOT/codex.zsh"; ' if source else ''
-        p=subprocess.run(['/bin/zsh','-df']+(['-i'] if interactive else [])+['-c',startup+body],env=dict(self.env,TERM_PROGRAM=terminal),cwd=self.link,capture_output=True,text=True,timeout=7)
+        process=self.start_shell(['/bin/zsh','-df']+(['-i'] if interactive else [])+['-c',startup+body],env=dict(self.env,TERM_PROGRAM=terminal))
+        try:
+            out,err=process.communicate(timeout=7)
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+        p=subprocess.CompletedProcess(process.args,process.returncode,out,err)
         self.assertNotIn('no such file',p.stderr)
         return p
     def rows(self,file='events'):
         path=self.root/file
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     def wait_helper(self): return "[[ -z ${_iterm2_utils_appearance_fd-} ]] || { local fixture_discard=''; sysread -i $_iterm2_utils_appearance_fd fixture_discard 2>/dev/null || true; }; "
+    def test_fresh_interactive_shell_without_tty_does_not_start_writer(self):
+        self.env.update(ITERM_SESSION_ID='w0t1p0:12345678-1234-1234-1234-123456789ABC',
+                        TERM_SESSION_ID='12345678-1234-1234-1234-123456789ABC')
+        snapshot=self.root/'snapshot'
+        snapshot.write_text('parent snapshot')
+        script='[[ -z $TTY ]] || exit 90; source "$TEST_ROOT/appearance.zsh"; source "$TEST_ROOT/codex.zsh"; builtin cd "$TEST_ROOT/B"; codex hello; result=$?; '+self.wait_helper()+'exit $result'
+        p=subprocess.run(['/bin/zsh','-dfi','-c',script],env=self.env,cwd=self.link,
+                         capture_output=True,text=True,start_new_session=True,timeout=7)
+        self.assertEqual(p.returncode,42,p.stderr)
+        self.assertEqual(p.stderr,'native stderr\n')
+        self.assertEqual(self.rows(),[])
+        self.assertEqual(snapshot.read_text(),'parent snapshot')
+
+    def test_inherited_session_id_on_foreign_pty_cannot_change_parent(self):
+        master,slave=pty.openpty()
+        self.addCleanup(os.close,master)
+        self.addCleanup(os.close,slave)
+        parent_tty=os.ttyname(slave)
+        self.env.update(ITERM_SESSION_ID='w0t1p0:12345678-1234-1234-1234-123456789ABC',
+                        TERM_SESSION_ID='12345678-1234-1234-1234-123456789ABC',
+                        PYTHONPATH=str(self.root))
+        for name in ('appearance.py','events.py'):
+            shutil.copy(REPO/'runtime'/name,self.root/name)
+        (self.root/'installed rules.json').write_text(json.dumps({'projects':[
+            {'root':str(self.project),'color':'#65A85A','icon':str(self.root/'icon.png')}]}))
+        (self.root/'icon.png').write_bytes(b'png')
+        (self.root/'snapshot').write_text('parent snapshot')
+        sdk = """import json, pathlib
+root=pathlib.Path(__file__).parent
+class Connection:
+    @staticmethod
+    async def async_create(): return Connection()
+    @property
+    def websocket(self): return self
+    async def close(self): pass
+class Session:
+    async def async_get_variable(self,name):
+        if name=='tty': return PARENT_TTY
+        return (root/'snapshot').read_text()
+    async def async_set_variable(self,name,value):
+        with (root/'mutations').open('a') as out: out.write(name+'\\n')
+        (root/'snapshot').write_text(str(value))
+    async def async_set_profile_properties(self,profile):
+        with (root/'mutations').open('a') as out: out.write('profile\\n')
+class App:
+    def get_session_by_id(self,terminal): return Session()
+async def async_get_app(connection): return App()
+""".replace('PARENT_TTY',repr(parent_tty))
+        (self.root/'iterm2.py').write_text(sdk)
+        p=self.run_shell('[[ -n $TTY ]] || exit 90; builtin cd "$TEST_ROOT/B"; codex hello; result=$?; '+self.wait_helper()+'exit $result')
+        self.assertEqual(p.returncode,42,p.stderr)
+        self.assertEqual(p.stdout,'')
+        self.assertEqual(p.stderr,'native stderr\n')
+        self.assertFalse((self.root/'mutations').exists())
+        self.assertEqual((self.root/'snapshot').read_text(),'parent snapshot')
+
     def test_startup_once_source_twice_and_cd_applies_physical_cwd(self):
         self.env.pop('TMUX')
         body=self.wait_helper()+'source "$TEST_ROOT/appearance.zsh"; '
@@ -90,7 +175,7 @@ class AppearanceShell(unittest.TestCase):
         starts=[r for r in self.rows() if r['event']=='start']
         expected=[self.project,self.outside,self.project,self.subdir,self.other,self.outside]
         self.assertEqual([r['phase'] for r in starts],['shell']*6)
-        self.assertEqual([r['args'] for r in starts],[['--config',str(self.root/'installed rules.json'),'--cwd',str(cwd),'--phase','shell'] for cwd in expected])
+        self.assertEqual([r['args'] for r in starts],[['--config',str(self.root/'installed rules.json'),'--cwd',str(cwd),'--phase','shell','--tty',self.shell_tty] for cwd in expected])
         self.assertEqual(p.stdout,''); self.assertEqual(p.stderr,'')
     def test_chpwd_preserves_foreign_function_hooks_and_cd_status(self):
         (self.root/'fail').touch()
@@ -212,8 +297,7 @@ print parent:$sysparams[pid]
                     script='source "$TEST_ROOT/appearance.zsh"; '
                     if trigger=='cd': script+='touch "$TEST_ROOT/hold-first-shell"; builtin cd "$TEST_ROOT/B"; '
                     script+='print parent-released; /bin/zsh -dfi "$TEST_ROOT/child.zsh"'
-                    p=subprocess.Popen(['/bin/zsh','-dfi','-c',script],env=self.env,cwd=self.link,
-                                       stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                    p=self.start_shell(['/bin/zsh','-dfi','-c',script])
                     try:
                         deadline=time.monotonic()+3
                         while not (self.root/'held-shell').exists() and time.monotonic()<deadline:
@@ -288,6 +372,7 @@ elif sys.argv[1]=='restore-open':
         (self.root/'codex-sessions').write_text(sessions)
         (self.root/'fzf').write_text('#!/bin/sh\ncat >/dev/null\nprintf "%s\\n" '+sid+'\n'); (self.root/'fzf').chmod(0o755)
         self.env['ITERM_SESSION_ID']='w1t1p0:'+sid
+        self.env['TERM_SESSION_ID']=sid
         p=self.run_shell(self.wait_helper()+'typeset -g _codex_restore_no_daemon=1; source "$TEST_ROOT/codex-resume.zsh"; source "$TEST_ROOT/codex.zsh"; source "$TEST_ROOT/codex-resume.zsh"; codex resume --restore; result=$?; '+self.wait_helper()+'exit $result')
         self.assertEqual(p.returncode,42,p.stderr)
         self.assertEqual(p.stderr,'native stderr\n'); self.assertEqual(p.stdout,'')
@@ -306,8 +391,7 @@ elif sys.argv[1]=='restore-open':
         (self.root/'await-launch').touch(); (self.root/'hold-launch').touch()
         # Keep this same interactive shell alive after EOF, so exit cannot reap zombies.
         script='source "$TEST_ROOT/appearance.zsh"; source "$TEST_ROOT/codex.zsh"; codex hello; '+self.wait_helper()+'print ready > "$TEST_ROOT/reap-ready"; read fixture_release'
-        p=subprocess.Popen(['/bin/zsh','-dfi','-c',script],env=self.env,cwd=self.link,
-                           stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        p=self.start_shell(['/bin/zsh','-dfi','-c',script])
         try:
             deadline=time.monotonic()+4
             while not (self.root/'reap-ready').exists() and time.monotonic()<deadline:
@@ -334,8 +418,7 @@ elif sys.argv[1]=='restore-open':
         script+='builtin cd "$TEST_ROOT/B"; builtin cd "$TEST_ROOT/outside"; '
         script+='codex hello; '+started+'builtin cd "$TEST_ROOT/linked"; builtin cd "$TEST_ROOT/outside"; '
         script+='print ready > "$TEST_ROOT/order-ready"; read fixture_release'
-        p=subprocess.Popen(['/bin/zsh','-dfi','-c',script],env=self.env,cwd=self.link,
-                           stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        p=self.start_shell(['/bin/zsh','-dfi','-c',script])
         try:
             deadline=time.monotonic()+5
             while not (self.root/'order-ready').exists() and time.monotonic()<deadline:

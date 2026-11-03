@@ -1,13 +1,16 @@
 import asyncio
+import fcntl
 from contextlib import asynccontextmanager
 import json
 import os
+import pty
 from pathlib import Path
 import signal
 import select
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -17,6 +20,7 @@ from runtime import appearance
 
 UUID = '12345678-1234-1234-1234-123456789ABC'
 ENV = {'ITERM_SESSION_ID': 'w0t1p0:' + UUID}
+DEVICE = os.stat('/dev/null').st_rdev
 
 
 class AppearanceEntrypointTests(unittest.TestCase):
@@ -28,6 +32,14 @@ class AppearanceEntrypointTests(unittest.TestCase):
         self.config.write_text(json.dumps({'projects': [
             {'root': str(self.repo), 'color': '#65A85A', 'icon': 'android-mail'}]}))
 
+    def test_old_caller_without_tty_is_ignored_before_api_or_rules(self):
+        with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
+             patch.object(appearance, '_API') as api, patch.object(appearance, 'load_rules') as rules:
+            for phase in ('shell', 'launch', 'return'):
+                self.assertEqual(appearance.apply(self.config, self.repo, phase, environment=ENV), 'ignored')
+            api.assert_not_called()
+            rules.assert_not_called()
+
     def test_public_entrypoints_exist(self):
         self.assertTrue(callable(getattr(appearance, 'apply', None)))
         self.assertTrue(callable(getattr(appearance, 'probe', None)))
@@ -36,12 +48,12 @@ class AppearanceEntrypointTests(unittest.TestCase):
         with patch.object(appearance, '_supervise') as worker:
             for env in ({}, {'ITERM_SESSION_ID': 'active'},
                         {**ENV, 'TERM_SESSION_ID': '00000000-0000-0000-0000-000000000000'}):
-                self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=env), 'ignored')
+                self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=env, tty='/dev/null'), 'ignored')
             worker.assert_not_called()
 
     def test_tmux_rejects_inherited_session_before_apply_or_probe(self):
         env = {**ENV, 'TERM_SESSION_ID': UUID, 'TMUX': '/fixture/tmux,42,0'}
-        for call, expected in ((lambda: appearance.apply(self.config, self.repo, 'launch', environment=env), 'ignored'),
+        for call, expected in ((lambda: appearance.apply(self.config, self.repo, 'launch', environment=env, tty='/dev/null'), 'ignored'),
                                (lambda: appearance.probe(environment=env), 'unavailable')):
             with self.subTest(expected=expected), patch.object(appearance, '_supervise', return_value='wrong-session-worker') as worker:
                 self.assertEqual(call(), expected)
@@ -50,7 +62,7 @@ class AppearanceEntrypointTests(unittest.TestCase):
     def test_absent_or_empty_tmux_keeps_explicit_session_available(self):
         for env in (ENV, {**ENV, 'TMUX': ''}):
             with self.subTest(env=env), patch.object(appearance, '_supervise', return_value='applied'):
-                self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=env), 'applied')
+                self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=env, tty='/dev/null'), 'applied')
             with patch.object(appearance, '_supervise', return_value='ready'):
                 self.assertEqual(appearance.probe(environment=env), 'ready')
 
@@ -58,57 +70,58 @@ class AppearanceEntrypointTests(unittest.TestCase):
         for arguments in ({'ready_fd': 0}, {'ready_fd': '3'}, {'launch_id': '../foreign'},
                           {'launch_id': '42-1\nprivate'}, {'launch_id': 1}):
             with self.subTest(arguments=arguments), patch.object(appearance, '_supervise') as worker:
-                self.assertEqual(appearance.apply(self.config, self.repo, 'launch', environment=ENV, **arguments), 'unavailable')
+                self.assertEqual(appearance.apply(self.config, self.repo, 'launch', environment=ENV, tty='/dev/null', **arguments), 'unavailable')
                 worker.assert_not_called()
 
     def test_no_match_shell_requests_default_reset(self):
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_operate', new=AsyncMock(return_value='applied')) as operation:
-            self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV), 'applied')
+            self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV, tty='/dev/null'), 'applied')
         self.assertEqual(operation.call_args.args[0], {
-            'terminal': UUID, 'phase': 'shell', 'config': str(self.config), 'cwd': '/', 'reset': True})
+            'terminal': UUID, 'phase': 'shell', 'config': str(self.config), 'cwd': '/', 'tty': '/dev/null', 'device': DEVICE, 'reset': True})
 
     def test_no_match_reset_still_requires_session_and_valid_config(self):
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_API') as api:
             for env in ({}, {**ENV, 'TMUX': '/fixture/tmux,42,0'}):
                 with self.subTest(env=env):
-                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=env), 'ignored')
+                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=env, tty='/dev/null'), 'ignored')
             for contents in ('invalid JSON', '{"projects":[]}'):
                 with self.subTest(contents=contents):
                     self.config.write_text(contents)
-                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV), 'unavailable')
+                    self.assertEqual(appearance.apply(self.config, Path('/'), 'shell', environment=ENV, tty='/dev/null'), 'unavailable')
             api.assert_not_called()
 
     def test_no_match_launch_and_return_reach_preservation_observer(self):
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_operate', new=AsyncMock(return_value='applied')) as operation:
             for phase in ('launch', 'return'):
-                self.assertEqual(appearance.apply(self.config, Path('/'), phase, environment=ENV), 'applied')
+                self.assertEqual(appearance.apply(self.config, Path('/'), phase, environment=ENV, tty='/dev/null'), 'applied')
                 self.assertTrue(operation.call_args.args[0]['preserve'])
 
     def test_valid_rule_passes_explicit_uuid_and_builtin_path(self):
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_operate', new=AsyncMock(return_value='applied')) as operation:
-            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV), 'applied')
+            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV, tty='/dev/null'), 'applied')
         request = operation.call_args.args[0]
         self.assertEqual(request['terminal'], UUID)
         self.assertEqual(request['icon'], str(Path(appearance.__file__).parent / 'assets/appearance/android-mail.png'))
 
     def test_filesystem_work_is_inside_supervised_worker(self):
         with patch.object(appearance, '_supervise', return_value='timeout') as worker, \
-             patch.object(appearance, 'load_rules') as load:
-            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV), 'timeout')
+             patch.object(appearance, 'load_rules') as load, patch.object(appearance, '_tty_device') as tty:
+            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV, tty='/dev/null'), 'timeout')
         load.assert_not_called()
+        tty.assert_not_called()
         self.assertEqual(worker.call_args.args, ({'terminal': UUID, 'phase': 'shell',
-                         'config': str(self.config), 'cwd': str(self.repo)}, ENV))
+                         'config': str(self.config), 'cwd': str(self.repo), 'tty': '/dev/null'}, ENV))
 
     def test_missing_custom_icon_is_unavailable_without_connecting(self):
         self.config.write_text(json.dumps({'projects': [
             {'root': str(self.repo), 'color': '#65A85A', 'icon': str(self.repo / 'lost.png')}]}))
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_API') as api:
-            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV), 'unavailable')
+            self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV, tty='/dev/null'), 'unavailable')
             api.assert_not_called()
 
     def test_custom_icon_and_probe(self):
@@ -118,7 +131,7 @@ class AppearanceEntrypointTests(unittest.TestCase):
             {'root': str(self.repo), 'color': '#65A85A', 'icon': str(icon)}]}))
         with patch.object(appearance, '_supervise', side_effect=lambda request, env: appearance._run_request(request)), \
              patch.object(appearance, '_operate', new=AsyncMock(return_value='applied')) as operation:
-            appearance.apply(self.config, self.repo, 'return', environment=ENV)
+            appearance.apply(self.config, self.repo, 'return', environment=ENV, tty='/dev/null')
             self.assertEqual(operation.call_args.args[0]['icon'], str(icon))
         with patch.object(appearance, '_supervise', return_value='ready') as worker:
             self.assertEqual(appearance.probe(environment=ENV), 'ready')
@@ -126,8 +139,8 @@ class AppearanceEntrypointTests(unittest.TestCase):
 
     def test_invalid_config_and_phase_are_quiet_unavailable(self):
         self.config.write_text('private invalid contents')
-        self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV), 'unavailable')
-        self.assertEqual(appearance.apply(self.config, self.repo, 'other', environment=ENV), 'unavailable')
+        self.assertEqual(appearance.apply(self.config, self.repo, 'shell', environment=ENV, tty='/dev/null'), 'unavailable')
+        self.assertEqual(appearance.apply(self.config, self.repo, 'other', environment=ENV, tty='/dev/null'), 'unavailable')
 
     def test_cli_invalid_input_has_only_status(self):
         result = subprocess.run([sys.executable, appearance.__file__, '--config', str(self.config),
@@ -146,6 +159,7 @@ class AppearanceEntrypointTests(unittest.TestCase):
 class FakeAPI:
     def __init__(self):
         self.session = object()
+        self.owns_terminal = AsyncMock(return_value=True)
         self.connect = AsyncMock()
         self.find = AsyncMock(return_value=self.session)
         self.write = AsyncMock()
@@ -211,10 +225,141 @@ class FakeAPI:
 class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.api = FakeAPI()
-        self.request = {'terminal': UUID, 'phase': 'shell', 'color': '#65A85A', 'icon': '/fixture/a.png'}
+        self.request = {'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'color': '#65A85A', 'icon': '/fixture/a.png'}
         self.factory = patch.object(appearance, '_API', return_value=self.api)
         self.factory.start()
         self.addCleanup(self.factory.stop)
+
+    async def test_foreign_or_missing_tty_never_mutates_session(self):
+        for phase in ('shell', 'launch', 'return'):
+            for matched in (False, True):
+                for device in (None, 17):
+                    with self.subTest(phase=phase, matched=matched, device=device):
+                        api = FakeAPI()
+                        api.owns_terminal.return_value = False
+                        api.saved = ('42-1', dict(api.current))
+                        original = api.saved
+                        request = {**self.request, 'phase': phase, 'device': device,
+                                   'launch_id': '42-1'}
+                        if not matched:
+                            request = {'terminal': UUID, 'phase': phase, 'device': device,
+                                       'launch_id': '42-1',
+                                       'reset' if phase == 'shell' else 'preserve': True}
+                        with patch.object(appearance, '_API', return_value=api), \
+                             patch.object(appearance, '_WATCH_SECONDS', .001):
+                            self.assertEqual(await appearance._operate(request), 'ignored')
+                        for name in ('write', 'reset', 'save_snapshot', 'invalidate_snapshot',
+                                     'restore', 'clear_snapshot', 'write_if_current', 'snapshot', 'take_snapshot'):
+                            getattr(api, name).assert_not_called()
+                        self.assertEqual(api.saved, original)
+
+    async def test_closed_session_cannot_mutate_or_clear_snapshot(self):
+        self.api.saved = ('42-1', dict(self.api.current))
+        original = self.api.saved
+        self.api.find.return_value = None
+        for phase in ('shell', 'launch', 'return'):
+            with self.subTest(phase=phase):
+                self.assertEqual(await appearance._operate({**self.request, 'phase': phase,
+                                 'launch_id': '42-1', 'preserve': phase != 'shell'}), 'unavailable')
+        for name in ('write', 'reset', 'save_snapshot', 'invalidate_snapshot',
+                     'restore', 'clear_snapshot', 'write_if_current', 'snapshot', 'take_snapshot'):
+            getattr(self.api, name).assert_not_called()
+        self.assertEqual(self.api.saved, original)
+
+    async def test_tty_read_error_or_timeout_cannot_mutate(self):
+        for error, expected in ((RuntimeError('private tty error'), 'unavailable'),
+                                (TimeoutError(), 'timeout')):
+            with self.subTest(expected=expected):
+                self.api.owns_terminal.side_effect = error
+                self.assertEqual(await appearance._operate({**self.request, 'device': 17}), expected)
+                self.api.invalidate_snapshot.assert_not_called()
+                self.api.write.assert_not_called()
+
+    async def test_lost_ownership_never_cleans_snapshot_even_if_later_read_would_match(self):
+        self.api.saved = ('42-1', dict(self.api.current))
+        original = self.api.saved
+        self.api.owns_terminal.side_effect = [True, False, True]
+        request = {**self.request, 'phase': 'return', 'launch_id': '42-1', 'preserve': True}
+        self.assertEqual(await appearance._operate(request), 'ignored')
+        self.api.restore.assert_not_called()
+        self.api.clear_snapshot.assert_not_called()
+        self.assertEqual(self.api.saved, original)
+        self.assertEqual(self.api.owns_terminal.await_count, 2)
+
+    async def test_ownership_read_error_before_write_also_skips_cleanup(self):
+        self.api.saved = ('42-1', dict(self.api.current))
+        original = self.api.saved
+        self.api.owns_terminal.side_effect = [True, RuntimeError('closed session'), True]
+        request = {**self.request, 'phase': 'return', 'launch_id': '42-1', 'preserve': True}
+        self.assertEqual(await appearance._operate(request), 'unavailable')
+        self.api.restore.assert_not_called()
+        self.api.clear_snapshot.assert_not_called()
+        self.assertEqual(self.api.saved, original)
+
+    async def test_ownership_loss_before_snapshot_save_keeps_existing_snapshot(self):
+        self.api.saved = ('old', dict(self.api.current))
+        original = self.api.saved
+        self.api.owns_terminal.side_effect = [True, False]
+        request = {**self.request, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
+        self.assertEqual(await appearance._operate(request), 'ignored')
+        self.api.snapshot.assert_awaited_once()
+        self.api.save_snapshot.assert_not_called()
+        self.assertEqual(self.api.saved, original)
+
+    async def test_observer_ownership_loss_blocks_deferred_write_and_cleanup(self):
+        for phase in ('launch', 'return'):
+            for preserve in (False, True):
+                with self.subTest(phase=phase, preserve=preserve):
+                    api = FakeAPI()
+                    api.job = 'zsh' if phase == 'launch' else 'codex'
+                    api.saved = ('42-1', dict(api.current) if preserve else None)
+                    owned = True
+                    api.owns_terminal.side_effect = lambda *args: owned
+                    request = {**self.request, 'phase': phase, 'launch_id': '42-1', 'preserve': preserve}
+                    async def drive():
+                        nonlocal owned
+                        while not api.watching:
+                            await asyncio.sleep(0)
+                        # Initial snapshot/write have finished before this event.
+                        counts = [getattr(api, name).await_count for name in
+                                  ('write', 'restore', 'write_if_current', 'clear_snapshot')]
+                        saved = api.saved
+                        owned = False
+                        api.job = 'codex' if phase == 'launch' else 'zsh'
+                        await api.events.put(None)
+                        return counts, saved
+                    driver = asyncio.create_task(drive())
+                    try:
+                        with patch.object(appearance, '_API', return_value=api), \
+                             patch.object(appearance, '_WATCH_SECONDS', .02):
+                            self.assertEqual(await appearance._operate(request), 'ignored')
+                        counts, saved = await driver
+                        self.assertEqual([getattr(api, name).await_count for name in
+                                          ('write', 'restore', 'write_if_current', 'clear_snapshot')], counts)
+                        self.assertEqual(api.saved, saved)
+                    finally:
+                        driver.cancel()
+                        await asyncio.gather(driver, return_exceptions=True)
+
+    async def test_ownership_loss_only_at_final_cleanup_preserves_snapshot(self):
+        self.api.saved = ('42-1', dict(self.api.current))
+        original = self.api.saved
+        self.api.job = 'codex'
+        self.api.owns_terminal.side_effect = [True, False]
+        with patch.object(appearance, '_WATCH_SECONDS', .001):
+            self.assertEqual(await appearance._operate({**self.request, 'phase': 'return',
+                             'preserve': True, 'launch_id': '42-1'}), 'ignored')
+        self.api.clear_snapshot.assert_not_called()
+        self.assertEqual(self.api.saved, original)
+
+    async def test_tty_read_deadline_is_quiet_and_never_mutates(self):
+        async def blocked(*args):
+            await asyncio.Future()
+        self.api.owns_terminal.side_effect = blocked
+        with patch.object(appearance, '_API_TIMEOUT', .01):
+            self.assertEqual(await appearance._operate(self.request), 'timeout')
+        self.api.invalidate_snapshot.assert_not_called()
+        self.api.write.assert_not_called()
 
     async def test_explicit_session_only_and_cleanup(self):
         self.assertEqual(await appearance._operate(self.request), 'applied')
@@ -223,7 +368,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         self.api.close.assert_awaited_once()
 
     async def test_default_reset_uses_only_explicit_session(self):
-        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True}
         with patch.object(self.api, 'watch') as watch:
             self.assertEqual(await appearance._operate(request), 'applied')
         watch.assert_not_called()
@@ -234,7 +379,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         self.api.close.assert_awaited_once()
 
     async def test_default_reset_missing_session_or_invalid_uuid_cannot_write(self):
-        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True}
         self.api.find.return_value = None
         self.assertEqual(await appearance._operate(request), 'unavailable')
         self.assertEqual(await appearance._operate({**request, 'terminal': 'active'}), 'unavailable')
@@ -242,7 +387,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         self.api.write.assert_not_called()
 
     async def test_default_reset_waits_for_native_write_and_reports_errors(self):
-        request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True}
         started, released = asyncio.Event(), asyncio.Event()
         async def delayed(session):
             started.set()
@@ -262,9 +407,10 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await appearance._operate(request), 'unavailable')
 
     async def test_probe_never_writes(self):
-        self.request['phase'] = 'probe'
+        self.request = {'terminal': UUID, 'phase': 'probe'}
         self.assertEqual(await appearance._operate(self.request), 'ready')
         self.api.write.assert_not_called()
+        self.api.owns_terminal.assert_not_called()
 
     async def test_missing_session_and_denial(self):
         self.api.find.return_value = None
@@ -323,7 +469,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_match_preserves_manual_snapshot_across_launch_and_return(self):
         expected = dict(self.api.current)
-        self.request = {'terminal': UUID, 'phase': 'launch', 'preserve': True}
+        self.request = {'terminal': UUID, 'device': DEVICE, 'phase': 'launch', 'preserve': True}
         async def launch():
             while self.api.saved is None:
                 await asyncio.sleep(0)
@@ -348,12 +494,12 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(driver, return_exceptions=True)
 
     async def test_default_survives_no_match_codex_aps_and_return(self):
-        self.assertEqual(await appearance._operate({'terminal': UUID, 'phase': 'shell', 'reset': True}), 'applied')
+        self.assertEqual(await appearance._operate({'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True}), 'applied')
         expected = {'Tab Color': {'Red Component': .4}, 'Use Tab Color': False,
                     'Use Tab Color (Light)': False, 'Use Tab Color (Dark)': False,
                     'Custom Icon Path': '', 'Icon': 0}
         self.assertEqual(self.api.current, expected)
-        request = {'terminal': UUID, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
         async def launch():
             while self.api.saved is None or self.api.saved[0] != '42-1':
                 await asyncio.sleep(0)
@@ -388,7 +534,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
                 expected = {'Use Tab Color': True, 'Custom Icon Path': '/fixture/new-project.png'}
                 shell_request = {**self.request, 'icon': expected['Custom Icon Path']}
                 if reset:
-                    shell_request = {'terminal': UUID, 'phase': 'shell', 'reset': True}
+                    shell_request = {'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True}
                     expected = {**old_properties, 'Use Tab Color': False, 'Use Tab Color (Light)': False,
                                 'Use Tab Color (Dark)': False, 'Icon': 0, 'Custom Icon Path': ''}
                 async def assign(session, color, icon):
@@ -399,7 +545,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(await appearance._operate(shell_request), 'applied')
                     return properties
                 self.api.take_snapshot.side_effect = take_then_shell
-                request = {'terminal': UUID, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
+                request = {'terminal': UUID, 'device': DEVICE, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
                 with patch.object(appearance, '_WATCH_SECONDS', .001):
                     self.assertEqual(await appearance._operate(request), 'ignored')
                 self.assertEqual(self.api.current, expected)
@@ -422,7 +568,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
                         try:
                             await asyncio.sleep(0)
                             self.assertEqual(old_writes, ['/fixture/old-project.png'])
-                            shell = ({'terminal': UUID, 'phase': 'shell', 'reset': True} if reset
+                            shell = ({'terminal': UUID, 'device': DEVICE, 'phase': 'shell', 'reset': True} if reset
                                      else {**self.request, 'icon': '/fixture/new-project.png'})
                             self.assertEqual(await appearance._operate(shell), 'applied')
                             expected = dict(self.api.current)
@@ -436,19 +582,19 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_match_without_transition_does_not_reassign_manual_style(self):
         expected = dict(self.api.current)
-        self.request = {'terminal': UUID, 'phase': 'launch', 'preserve': True}
+        self.request = {'terminal': UUID, 'device': DEVICE, 'phase': 'launch', 'preserve': True}
         with patch.object(appearance, '_WATCH_SECONDS', .01):
             self.assertEqual(await appearance._operate(self.request), 'ignored')
         self.assertEqual(self.api.current, expected)
         self.api.restore.assert_not_called()
 
     async def test_no_match_return_without_snapshot_leaves_session_untouched(self):
-        self.request = {'terminal': UUID, 'phase': 'return', 'preserve': True}
+        self.request = {'terminal': UUID, 'device': DEVICE, 'phase': 'return', 'preserve': True}
         self.assertEqual(await appearance._operate(self.request), 'ignored')
         self.api.restore.assert_not_called()
 
     async def test_failed_new_launch_cannot_restore_an_older_snapshot(self):
-        request = {'terminal': UUID, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'launch', 'preserve': True, 'launch_id': '42-1'}
         with patch.object(appearance, '_WATCH_SECONDS', .001):
             await appearance._operate(request)
             self.api.current = {'Use Tab Color': False, 'Custom Icon Path': '/fixture/new-manual.png'}
@@ -467,7 +613,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
                     self.api.current = dict(newer_properties)
                     return properties
                 self.api.take_snapshot.side_effect = take_then_replace
-                request = {'terminal': UUID, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
+                request = {'terminal': UUID, 'device': DEVICE, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
                 with patch.object(appearance, '_WATCH_SECONDS', .001):
                     self.assertEqual(await appearance._operate(request), 'ignored')
                 self.assertEqual(self.api.current, newer_properties)
@@ -488,7 +634,7 @@ class AppearanceOperationTests(unittest.IsolatedAsyncioTestCase):
     async def test_cancelled_return_clears_only_its_reserved_snapshot(self):
         self.api.saved = ('42-1', dict(self.api.current))
         self.api.job = 'codex'
-        request = {'terminal': UUID, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
+        request = {'terminal': UUID, 'device': DEVICE, 'phase': 'return', 'preserve': True, 'launch_id': '42-1'}
         observer = asyncio.create_task(appearance._operate(request))
         try:
             while not self.api.take_snapshot.await_count:
@@ -571,6 +717,36 @@ class SnapshotSession:
 
 
 class NativeAdapterTests(unittest.IsolatedAsyncioTestCase):
+    async def test_terminal_device_alias_and_foreign_pty(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(sys.modules, {'iterm2': Mock()}):
+            api = appearance._API()
+            master, slave = pty.openpty()
+            foreign_master, foreign_slave = pty.openpty()
+            try:
+                tty = os.ttyname(slave)
+                alias = Path(root) / 'tty-alias'
+                alias.symlink_to(tty)
+                device = os.fstat(slave).st_rdev
+                session = Mock(async_get_variable=AsyncMock(return_value=str(alias)))
+                self.assertEqual(appearance._tty_device(tty), device)
+                self.assertEqual(appearance._tty_device(str(alias)), device)
+                self.assertTrue(await api.owns_terminal(session, device))
+                session.async_get_variable.assert_awaited_once_with('tty')
+                session.async_get_variable.return_value = os.ttyname(foreign_slave)
+                self.assertFalse(await api.owns_terminal(session, device))
+                for path in (None, '', 'relative', '/missing-fixture', str(Path(root)),
+                             str(Path(root) / 'file'), '/dev/null\x00private'):
+                    with self.subTest(path=path):
+                        (Path(root) / 'file').touch()
+                        self.assertIsNone(appearance._tty_device(path))
+                        session.async_get_variable.return_value = path
+                        self.assertFalse(await api.owns_terminal(session, device))
+                self.assertFalse(await api.owns_terminal(None, device))
+                self.assertFalse(await api.owns_terminal(session, None))
+            finally:
+                for fd in (master, slave, foreign_master, foreign_slave):
+                    os.close(fd)
+
     async def test_reset_disables_all_color_variants_and_custom_icon(self):
         sdk = Mock()
         sdk.IconMode.NONE = 0
@@ -828,7 +1004,9 @@ class VariableMonitor:
     async def async_get(self): await asyncio.Future()
 class Session:
     snapshot = None
-    async def async_get_variable(self, name): return 'zsh' if name == 'jobName' else self.snapshot
+    async def async_get_variable(self, name):
+        if name == 'tty': return os.environ['APPEARANCE_TEST_TTY']
+        return 'zsh' if name == 'jobName' else self.snapshot
     async def async_set_variable(self, name, value): self.snapshot = value
     async def async_set_profile_properties(self, profile):
         await asyncio.sleep(.05)
@@ -846,12 +1024,21 @@ class Connection:
             config = root / 'rules.json'
             config.write_text(json.dumps({'projects': [{'root': str(root), 'color': '#65A85A', 'icon': 'android-mail'}]}))
             marker = root / 'written'
+            master, slave = pty.openpty()
+            self.addCleanup(os.close, master)
+            self.addCleanup(os.close, slave)
+            tty = os.ttyname(slave)
+            def own_terminal():
+                os.setsid()
+                fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
             read_fd, write_fd = os.pipe()
             try:
                 with subprocess.Popen([sys.executable, appearance.__file__, '--config', str(config),
-                        '--cwd', str(root), '--phase', 'launch', '--ready-fd', str(write_fd)],
-                        env={**ENV, 'PYTHONPATH': str(root), 'APPEARANCE_TEST_WRITE': str(marker)},
-                        pass_fds=(write_fd,), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
+                        '--cwd', str(root), '--phase', 'launch', '--ready-fd', str(write_fd), '--tty', tty],
+                        env={**ENV, 'PYTHONPATH': str(root), 'APPEARANCE_TEST_WRITE': str(marker),
+                             'APPEARANCE_TEST_TTY': tty},
+                        preexec_fn=own_terminal, stdin=slave, pass_fds=(write_fd,),
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
                     os.close(write_fd)
                     write_fd = None
                     try:
