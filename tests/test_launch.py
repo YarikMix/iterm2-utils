@@ -90,10 +90,21 @@ else:
                     os.setsid()
                     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
                 child_env = dict(before, ITERM_SESSION_ID='w0t1p0:'+child_id, TERM_SESSION_ID=child_id)
-                result = subprocess.run(['/bin/zsh', '-ilc', 'true'], env=child_env, cwd=project,
-                                        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                        preexec_fn=own_terminal, text=True, timeout=7)
-                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
+                with subprocess.Popen(['/bin/zsh', '-ilc', 'true'], env=child_env, cwd=project,
+                                      stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      preexec_fn=own_terminal, text=True) as child:
+                    try:
+                        stdout, stderr = child.communicate(timeout=7)
+                    except subprocess.TimeoutExpired as exc:
+                        try:
+                            os.killpg(child.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        child.wait(timeout=2)
+                        self.fail('child login shell timed out after 7 seconds; '
+                                  f'stdout tail={(exc.stdout or b"")[-4096:]!r}; '
+                                  f'stderr tail={(exc.stderr or b"")[-4096:]!r}')
+                self.assertEqual((child.returncode, stdout, stderr), (0, '', ''))
                 final = json.loads(state_path.read_text())
                 self.assertEqual(final[SID], parent)
                 self.assertEqual(final[child_id]['profile']['tab_color'], [18, 52, 86])
