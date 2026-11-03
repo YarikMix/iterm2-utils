@@ -216,7 +216,7 @@ def _metadata_command(paths, expected=None):
     code = ('import json,sys; ' + f'raw=dict(zip({keys!r},sys.argv[1:9])); ' +
             f'raw["functions"]=dict(zip({FUNCTIONS!r},sys.argv[9:])); ')
     if expected is None:
-        code += 'print(json.dumps({"iterm2_launch_identity":raw}),flush=True)'
+        code += 'print(chr(10)+json.dumps({"iterm2_launch_identity":raw}),flush=True)'
     else:
         values = asdict(expected)
         values = {key: str(value) if isinstance(value, Path) else value for key, value in values.items()}

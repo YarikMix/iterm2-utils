@@ -364,6 +364,53 @@ class LaunchChecksTests(unittest.TestCase):
                 self.assertTrue(findings)
                 self.assertNotIn('SECRET', repr(findings))
 
+    def test_login_startup_without_newline_preserves_identity_and_config_checks(self):
+        for noise in ('PRIVATE_STARTUP', '\x1b[31mPRIVATE_STARTUP\x1b[0m\x1b]0;title\x07'):
+            for copy_on_select in ('never', 'auto'):
+                with self.subTest(noise=noise, copy_on_select=copy_on_select), Fixture() as f:
+                    m, paths, request, _, _ = self.setup_launch(f)
+                    (f.bin/'zsh').unlink()
+                    (f.bin/'zsh').symlink_to('/bin/zsh')
+                    (f.home/'.zshrc').write_text(
+                        'export PATH='+shlex.quote(str(f.bin))+':/usr/bin:/bin\n'
+                        'print -rn -- '+shlex.quote(noise)+'\n')
+                    (f.bin/'codex').write_text('#!'+sys.executable+'\n'+'''import json,os,sys
+if sys.argv[1:] == ['--version']:
+    print('codex-cli 0.166.0')
+else:
+    assert sys.argv[1:] == ['app-server', '--stdio']
+    assert json.loads(input())['method'] == 'initialize'
+    print(json.dumps({'id': 1, 'result': {'userAgent': 'codex/0.166.0'}}), flush=True)
+    assert json.loads(input())['method'] == 'initialized'
+    request = json.loads(input())
+    assert request['method'] == 'config/read' and request['params']['cwd'] == os.environ['HOME']
+    print(json.dumps({'id': 2, 'result': {'config': {'tui': {'copy_on_select': '''+repr(copy_on_select)+'''}}}}), flush=True)
+    sys.stdin.read()
+''')
+                    os.environ['ZDOTDIR'] = str(f.home)
+                    before = dict(os.environ)
+                    seen = []
+                    def codex_config(argv, *, timeout, env, cwd, check_identity):
+                        def checked(raw):
+                            identity = check_identity(raw)
+                            seen.append(identity)
+                            return identity
+                        return Runner().codex_config(argv, timeout=.75, env=env, cwd=cwd,
+                                                     check_identity=checked)
+                    f.runner.codex_config = codex_config
+                    inspection, findings = m.inspect_launch(paths, request, f.runner)
+                    self.assertEqual(len(seen), 1, 'startup swallowed identity: '+repr(findings))
+                    self.assertEqual(seen[0].executable, f.bin/'codex')
+                    self.assertEqual(seen[0].home, f.home)
+                    if copy_on_select == 'never':
+                        self.assertEqual(findings, [])
+                        self.assertEqual(inspection.identity, seen[0])
+                    else:
+                        self.assertIsNone(inspection)
+                        self.assertEqual([x.code for x in findings], ['launch_copy_on_select'])
+                    self.assertNotIn('PRIVATE_STARTUP', repr(findings))
+                    self.assertEqual(dict(os.environ), before)
+
     def test_nondefault_homes_are_retained_in_identity(self):
         with Fixture() as f, patch.dict(os.environ, {'CODEX_HOME': str(f.home/'other-codex'), 'ZDOTDIR': str(f.home/'shell')}):
             m, paths, request, state, bodies = self.setup_launch(f)
@@ -392,8 +439,10 @@ class LaunchChecksTests(unittest.TestCase):
                     guard = m.identity_guard(paths, identity)
                     out = Runner().run(['/bin/zsh','-dfc',source+guard], timeout=3, env=env)
                     self.assertEqual(out.returncode, 0, out.stderr)
+                    self.assertEqual(out.stdout, '')
                     out = Runner().run(['/bin/zsh','-dfc',source+'CODEX_HOME=/different\n'+guard], timeout=3, env=env)
                     self.assertNotEqual(out.returncode, 0)
+                    self.assertEqual(out.stdout, '')
                     if 'runtime/codex_restore/codex-resume.zsh' in layers:
                         raw['functions']['_codex_restore_previous'] = 'command codex --profile work "$@"'
                         with self.assertRaises(ValueError):
