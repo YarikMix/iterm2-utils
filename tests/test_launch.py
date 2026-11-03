@@ -1,5 +1,8 @@
 """One explicit creation, truthful observations and inert shell argument values."""
 import importlib
+import fcntl
+import pty
+import termios
 import importlib.util
 import json
 import os
@@ -24,6 +27,82 @@ SID = '11111111-1111-4111-8111-111111111111'
 
 
 class LaunchTests(unittest.TestCase):
+    def test_preflight_in_other_project_preserves_parent_appearance_and_snapshot(self):
+        from iterm2_utils.commands import Runner
+        from tests.test_launch_checks import LaunchChecksTests, transcript, RESUME_ID
+        from tests.test_payload import APPEARANCE_SDK
+        child_id = '22222222-2222-4222-8222-222222222222'
+        for resume in (False, True):
+            with self.subTest(resume=resume), Fixture() as f:
+                checks, paths, request, _, _ = LaunchChecksTests().setup_launch(f)
+                project = f.home/'other-project'; project.mkdir()
+                request = replace(request, cwd=project)
+                if resume:
+                    request = replace(request, handoff=None, resume_session_id=RESUME_ID)
+                    transcript(paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl'), project)
+                config = f.home/'appearance.json'
+                icon = paths.repo/'runtime/assets/appearance/ios.png'
+                config.write_text(json.dumps({'projects': [dict(root=str(project), color='#123456', icon=str(icon))]}))
+                (f.home/'iterm2.py').write_text(APPEARANCE_SDK)
+                master, slave = pty.openpty()
+                self.addCleanup(os.close, master)
+                self.addCleanup(os.close, slave)
+                parent_master, parent_slave = pty.openpty()
+                self.addCleanup(os.close, parent_master)
+                self.addCleanup(os.close, parent_slave)
+                parent = dict(tty=os.ttyname(parent_slave), profile={'color': 'parent', 'icon': 'manual'}, snapshot='saved parent')
+                initial = {SID: parent, child_id: dict(tty=os.ttyname(slave), profile={}, snapshot='child saved')}
+                state_path = f.home/'sdk-state.json'
+                state_path.write_text(json.dumps(initial))
+                mutations = f.home/'sdk-mutations.jsonl'
+                (f.bin/'zsh').unlink(); (f.bin/'zsh').symlink_to('/bin/zsh')
+                (f.bin/'codex').write_text('#!'+sys.executable+'\n'+'''import json, os, pathlib, sys
+if sys.argv[1:] == ['--version']:
+    print('codex-cli 0.166.0')
+else:
+    assert sys.argv[1:] == ['app-server', '--stdio'], sys.argv
+    initialize = json.loads(input()); assert initialize['method'] == 'initialize'
+    print(json.dumps({'id': initialize['id'], 'result': {'userAgent': 'codex/0.166.0'}}), flush=True)
+    assert json.loads(input())['method'] == 'initialized'
+    request = json.loads(input()); assert request['method'] == 'config/read'
+    pathlib.Path(os.environ['HOME']+'/protocol.json').write_text(json.dumps(
+        dict(cwd=request['params']['cwd'], ids=[os.environ.get(key) for key in ('ITERM_SESSION_ID','TERM_SESSION_ID')])))
+    print(json.dumps({'id': request['id'], 'result': {'config': {'tui': {'copy_on_select': 'never'}}}}), flush=True)
+    sys.stdin.read()
+''')
+                (f.home/'.zshrc').write_text(
+                    'export PATH='+shlex.quote(str(f.bin))+':/usr/bin:/bin\n'
+                    'source '+shlex.quote(str(paths.repo/'runtime/appearance.zsh'))+'\n')
+                os.environ.update(ZDOTDIR=str(f.home), TERM_PROGRAM='iTerm.app',
+                                  ITERM_SESSION_ID='w0t0p0:'+SID, TERM_SESSION_ID=SID,
+                                  ITERM2_UTILS_PYTHON=sys.executable, ITERM2_UTILS_APPEARANCE_CONFIG=str(config),
+                                  PYTHONPATH=str(f.home))
+                before = dict(os.environ)
+                f.runner.codex_config = Runner().codex_config
+                inspection, findings = checks.inspect_launch(paths, request, f.runner)
+                self.assertEqual(findings, [])
+                self.assertIsNotNone(inspection)
+                self.assertEqual(dict(os.environ), before)
+                self.assertEqual(json.loads((f.home/'protocol.json').read_text()), dict(cwd=str(project), ids=[None, None]))
+                self.assertEqual(json.loads(state_path.read_text()), initial)
+                self.assertFalse(mutations.exists(), 'preflight must not even invalidate a snapshot')
+                def own_terminal():
+                    os.setsid()
+                    fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+                child_env = dict(before, ITERM_SESSION_ID='w0t1p0:'+child_id, TERM_SESSION_ID=child_id)
+                result = subprocess.run(['/bin/zsh', '-ilc', 'true'], env=child_env, cwd=project,
+                                        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                        preexec_fn=own_terminal, text=True, timeout=7)
+                self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
+                final = json.loads(state_path.read_text())
+                self.assertEqual(final[SID], parent)
+                self.assertEqual(final[child_id]['profile']['tab_color'], [18, 52, 86])
+                self.assertEqual(final[child_id]['profile']['custom_icon_path'], str(icon))
+                self.assertIsNone(final[child_id]['snapshot'])
+                records = [json.loads(line) for line in mutations.read_text().splitlines()]
+                self.assertEqual([(sid, kind) for sid, kind, _ in records],
+                                 [(child_id, 'snapshot'), (child_id, 'profile')])
+
     def test_resume_arguments_are_exact_and_normalized(self):
         with Fixture() as f:
             m, paths, request, inspection, state = self.fixture(f)

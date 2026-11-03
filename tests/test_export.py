@@ -146,6 +146,7 @@ class ExportTests(unittest.TestCase):
                          'runtime/.env.py', 'runtime/receipt.json', 'runtime/backup.py',
                          'logs/transcript.jsonl', 'auth/token', 'runtime/__pycache__/secret.pyc',
                          'docs/superpowers/validation/private.md', 'memory/private.md',
+                         'docs/superpowers/plans/private-plan.md', '.superpowers/sdd/private-report.md',
                          'runtime/raw-event.json', 'runtime/cc-status', 'runtime/it2',
                          'runtime/assets/appearance/foreign.png', 'source-rules.json', 'config/appearance.json',
                          'data/receipt.json',
@@ -164,9 +165,17 @@ class ExportTests(unittest.TestCase):
                 self.assertIn('vendor/codex_status/LICENSE', names)
                 self.assertIn('runtime/assets/appearance/android-mail.png', names)
                 self.assertIn('runtime/appearance.py', names)
+                self.assertIn('runtime/appearance.zsh', names)
+                self.assertFalse(any(name.startswith(('.superpowers/', 'docs/superpowers/plans/')) for name in names))
                 for member in members:
                     self.assertTrue(member.isfile())
-                    self.assertNotIn((b'PRIVATE_' + b'FIXTURE_MARKER'), tar.extractfile(member).read())
+                    content = tar.extractfile(member).read()
+                    self.assertNotIn((b'PRIVATE_' + b'FIXTURE_MARKER'), content)
+                    self.assertNotIn(str(root).encode(), content)
+                    self.assertNotIn(str(ROOT).encode(), content)
+                    relative = member.name.split('/', 1)[1]
+                    if relative in {'runtime/appearance.py', 'runtime/appearance.zsh', 'iterm2_utils/launch_checks.py'}:
+                        self.assertEqual(content, (ROOT/relative).read_bytes())
                 self.assertEqual(names, set(check_export.EXPORT_FILES))
                 self.assertTrue({'runtime/native_status.py', 'tests/test_native_status.py',
                                  'tests/test_native_status_migration.py',

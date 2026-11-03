@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Launcher preflight now removes inherited terminal IDs only from its private
+login-shell environment, preserving parent appearance and snapshots in both
+handoff/resume modes. Appearance independently matches the calling shell's tty
+device to the explicitly selected iTerm2 session before any profile or snapshot
+mutation, including observer cleanup. Missing/mismatched tty safely skips;
+supervisor pipes and nested interactive shells on their own terminal still work.
+Update both runtime helpers together and open a fresh shell: already running
+shells retain their loaded hook and may still reference an older runtime without
+this protection. An old caller invoking the new Python helper without tty safely
+skips; updating does not retrofit running shells.
+No public options or project-rule schema changes. Fixture acceptance does not
+establish live iTerm2 behavior.
+
 Added explicit Codex-only `appearance`: repository JSON rules choose a session
 color and one of nine bundled PNGs or an owned copy of a custom PNG.
 Applies at interactive shell start, ordinary cd and Codex start (including

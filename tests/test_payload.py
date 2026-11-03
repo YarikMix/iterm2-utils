@@ -1,4 +1,8 @@
 import shutil
+import fcntl
+import os
+import pty
+import termios
 import json
 from pathlib import Path
 import subprocess
@@ -8,6 +12,47 @@ from dataclasses import replace
 from iterm2_utils.features.shell import runtime_payload
 from iterm2_utils.models import FileEdit, SymlinkEdit
 from tests import test_shell
+
+# Shared fake SDK boundary for installed-payload and launcher integration tests.
+APPEARANCE_SDK = r'''import json
+from pathlib import Path
+root = Path(__file__).parent
+state_path = root/'sdk-state.json'
+def read(): return json.loads(state_path.read_text())
+class Connection:
+    @staticmethod
+    async def async_create(): return Connection()
+    @property
+    def websocket(self): return self
+    async def close(self): pass
+class Session:
+    def __init__(self, terminal): self.terminal = terminal
+    async def async_get_variable(self, name):
+        state = read()[self.terminal]
+        return state['tty'] if name == 'tty' else state['snapshot']
+    def mutate(self, kind, value):
+        state = read()
+        state[self.terminal][kind] = value
+        state_path.write_text(json.dumps(state))
+        with (root/'sdk-mutations.jsonl').open('a') as out:
+            out.write(json.dumps([self.terminal, kind, value])+'\n')
+    async def async_set_variable(self, name, value): self.mutate('snapshot', value)
+    async def async_set_profile_properties(self, profile): self.mutate('profile', profile.values)
+class App:
+    def get_session_by_id(self, terminal):
+        return Session(terminal) if terminal in read() else None
+async def async_get_app(connection): return App()
+class LocalWriteOnlyProfile:
+    def __init__(self): self.values = {}
+    def __getattr__(self, name):
+        assert name.startswith('set_'), name
+        return lambda value: self.values.update({name[4:]: value})
+class IconMode:
+    CUSTOM = 2
+    NONE = 0
+def Color(*rgb): return list(rgb)
+'''
+
 
 class PayloadTests(test_shell.ShellFixture, unittest.TestCase):
     def test_payload_survives_checkout_move(self):
@@ -169,7 +214,7 @@ async def worker(request):
     return 'applied'
 appearance._operate = worker
 for cwd in [*(home/name for name in expected), home]:
-    assert appearance._run_request(dict(config=str(config), cwd=str(cwd), phase='shell', terminal='12345678-1234-4234-8234-123456789abc')) == 'applied'
+    assert appearance._run_request(dict(config=str(config), cwd=str(cwd), phase='shell', terminal='12345678-1234-4234-8234-123456789abc', tty='/dev/null')) == 'applied'
 assert seen == [*expected, None], seen
 assert (current/'LICENSE').is_file() and (current/'THIRD_PARTY_NOTICES.md').is_file()
 """
@@ -177,6 +222,56 @@ assert (current/'LICENSE').is_file() and (current/'THIRD_PARTY_NOTICES.md').is_f
                                 cwd=home, env={'PATH':'/usr/bin:/bin', 'PYTHONNOUSERSITE':'1'},
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+
+    def test_installed_shell_owns_pty_and_old_python_caller_safely_skips(self):
+        from tests.test_lifecycle import LifecycleFixture
+        fixture = LifecycleFixture(); fixture.setUp(); self.addCleanup(fixture.doCleanups)
+        checkout = self.checkout()
+        fixture.context.paths = replace(fixture.context.paths, repo=checkout)
+        fixture.context.capabilities |= {'python:iterm2'}
+        home = fixture.context.paths.home
+        project = home/'project'; project.mkdir()
+        source = home/'rules.json'
+        source.write_text(json.dumps({'projects': [dict(root=str(project), color='#123456', icon='ios')]}))
+        fixture.context.appearance_config = source
+        fixture.assertSuccess(fixture.install('appearance'))
+        current = fixture.context.paths.data/'current'
+        config = fixture.context.paths.config/'appearance.json'
+        source.unlink(); shutil.rmtree(checkout)
+        (home/'iterm2.py').write_text(APPEARANCE_SDK)
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        terminal = '12345678-1234-4234-8234-123456789ABC'
+        initial = {terminal: dict(tty=os.ttyname(slave), profile={'color': 'parent'}, snapshot='saved')}
+        state = home/'sdk-state.json'
+        state.write_text(json.dumps(initial))
+        mutations = home/'sdk-mutations.jsonl'
+        env = dict(HOME=str(home), ZDOTDIR=str(home), PATH='/usr/bin:/bin',
+                   TERM_PROGRAM='iTerm.app', ITERM_SESSION_ID=terminal, TERM_SESSION_ID=terminal,
+                   ITERM2_UTILS_PYTHON=sys.executable, ITERM2_UTILS_APPEARANCE_CONFIG=str(config),
+                   PYTHONPATH=str(home))
+        for phase in ('shell', 'launch', 'return'):
+            result = subprocess.run([sys.executable, str(current/'appearance.py'), '--config', str(config),
+                                     '--cwd', str(project), '--phase', phase],
+                                    env=env, capture_output=True, text=True, timeout=5)
+            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, 'ignored\n', ''))
+            self.assertEqual(json.loads(state.read_text()), initial)
+            self.assertFalse(mutations.exists())
+        def own_terminal():
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+        result = subprocess.run(['/bin/zsh', '-dfi', '-c', 'source "$1/appearance.zsh"', 'fixture', str(current)],
+                                env=env, cwd=project, stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                preexec_fn=own_terminal, text=True, timeout=7)
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, '', ''))
+        updated = json.loads(state.read_text())[terminal]
+        self.assertIsNone(updated['snapshot'])
+        self.assertEqual(updated['profile']['tab_color'], [18, 52, 86])
+        self.assertEqual(updated['profile']['custom_icon_path'], str(current.resolve()/'assets/appearance/ios.png'))
+        records = [json.loads(line) for line in mutations.read_text().splitlines()]
+        self.assertEqual([(sid, kind) for sid, kind, _ in records],
+                         [(terminal, 'snapshot'), (terminal, 'profile')])
 
     def test_installed_chpwd_hook_survives_source_removal(self):
         from tests.test_lifecycle import LifecycleFixture
@@ -220,15 +315,23 @@ await_calls 2 || exit 13
 cd "$HOME" || exit 14
 await_calls 3 || exit 15
 """
+        master, slave = pty.openpty()
+        self.addCleanup(os.close, master)
+        self.addCleanup(os.close, slave)
+        tty = os.ttyname(slave)
+        def own_terminal():
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
         result = subprocess.run(['/bin/zsh', '-dfi', '-c', script, 'fixture', str(current), str(alias)],
                                 cwd=home, env={'HOME': str(home), 'ZDOTDIR': str(home), 'PATH': '/usr/bin:/bin',
                                               'TERM_PROGRAM': 'iTerm.app', 'ITERM_SESSION_ID': '12345678-1234-4234-8234-123456789abc',
                                               'ITERM2_UTILS_PYTHON': str(boundary), 'ITERM2_UTILS_APPEARANCE_CONFIG': str(config),
                                               'CALLS': str(calls)},
-                                capture_output=True, text=True, timeout=15)
+                                stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                preexec_fn=own_terminal, text=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
         self.assertEqual(result.stdout+result.stderr, '')
         records = [json.loads(line) for line in calls.read_text().splitlines()]
         self.assertEqual(records, [[str(current.resolve()/'appearance.py'),
-                                   {'--config': str(config), '--cwd': str(cwd.resolve()), '--phase': 'shell'}]
+                                   {'--config': str(config), '--cwd': str(cwd.resolve()), '--phase': 'shell', '--tty': tty}]
                                   for cwd in (home, project, home)])

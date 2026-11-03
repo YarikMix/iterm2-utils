@@ -102,3 +102,15 @@ command is visible in Codex's input field, leave it unsent: bare Codex is not a
 successful launch. Use this procedure for an authorized replacement; retain the
 old tab and diagnostic artifacts. Receipt/history is not task completion,
 design approval or clipboard acceptance.
+
+The effective-config preflight still uses the selected cwd and login shell, but
+its private environment omits both inherited `ITERM_SESSION_ID` and
+`TERM_SESSION_ID`. Parent environment, appearance and saved snapshot stay intact
+before creation; the new tab gets its own iTerm2 binding and normal shell startup.
+Appearance separately requires the shell tty device to match the explicit
+session's tty before any profile/snapshot write. Missing/mismatched tty safely
+skips; read-only API access alone does not authorize mutation. After updating
+runtime, use a fresh shell to load the new hook. Existing shells may still call
+an older immutable runtime without this protection. An old caller invoking the
+new Python helper without tty safely skips; update does not retrofit running
+shells. Do not restart existing user sessions.

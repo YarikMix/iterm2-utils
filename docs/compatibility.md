@@ -448,3 +448,36 @@ for this asset-only change; earlier rows retain their historical scope. Existing
 notification-policy/hook diagnostics were identical before and after the selected
 install and were not changed. Working user tabs were not restarted; a fresh tab
 loads the updated runtime. Private paths and screenshots are excluded from export.
+
+
+## Terminal ownership — fixture verification, 2026-11-03
+
+Launcher effective-config preflight keeps the selected login-shell startup/cwd,
+while its private environment omits both parent terminal IDs. Parent environment,
+color/icon and appearance snapshot are preserved before creation. New tabs retain
+their own iTerm2 binding. Independently, appearance compares the calling shell's
+tty device with the explicit session's tty, including aliases of the same device,
+before any profile/snapshot mutation or delayed observer cleanup. Missing tty,
+foreign PTY, conflicting IDs, closed sessions and API failures safely skip. Probe
+only proves API access. Pipes supervisor and nested shells on their own terminal
+remain supported; no public flag or JSON schema changes.
+
+Hermetic fixtures cover both defenses independently; combined handoff/resume
+regressions run real Runner.codex_config, login zsh and fake Codex JSON-RPC/SDK
+in a different project with zero parent mutations. An own-PTY child positively
+applies its own color/icon; installed payload tests cover source removal, tty
+forwarding and safe skipping of old Python calls without tty in all three
+phases. Archive tests compare the shipped shell/helper/preflight bytes and reject
+personal paths, local plans and .superpowers state. These are automated contracts,
+not new live acceptance or CI results.
+
+Live verification of this ownership change remains pending separately from these
+fixtures: parent appearance/snapshot before/after launcher preflight in another
+project, independent child styling and ordinary cd/reset in owned temporary tabs.
+Earlier native matrices retain their historical scope. Update both runtime
+helpers together and use a fresh shell; existing shells retain their loaded hook
+and may still reference an older immutable runtime without this protection. Old
+callers safely skip only when invoking the new Python helper without tty. Existing
+user tabs are never restarted by
+the installer. Late APS beyond the existing bounded observer, tmux and protection
+against malicious processes sharing the user's API remain outside this scope.
