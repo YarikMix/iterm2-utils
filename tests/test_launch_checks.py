@@ -161,7 +161,7 @@ class LaunchChecksTests(unittest.TestCase):
         request = module.LaunchRequest('window-one', 'Кодекс personal', f.home, handoff)
         state = {'profile': profile(), 'live': [{'guid': 'profile-one', 'name': request.profile}],
                  'config': {'tui': {'copy_on_select': 'never'}}, 'copy': False,
-                 'windows': [{'id': 'window-one'}], 'version': '0.166.0'}
+                 'windows': [{'id': 'window-one'}], 'version': '0.166.0', 'preflight_environments': []}
         bodies = {'direct': 'command codex "$@"', 'simple': 'command codex --no-daemon "$@"',
                   'dispatcher': 'fixture shipped dispatcher', '_iterm2_utils_classify': 'fixture classifier',
                   'restore': 'fixture restore', '_codex_restore_call': 'fixture call',
@@ -177,6 +177,7 @@ class LaunchChecksTests(unittest.TestCase):
             original(argv, **kwargs)
             args = argv[1:]
             if Path(argv[0]).name == 'zsh':
+                state['preflight_environments'].append(dict(kwargs['env']))
                 return subprocess.CompletedProcess(argv, 0, json.dumps(bodies), '')
             if Path(argv[0]).name == 'it2':
                 if args == ['--help']:
@@ -197,6 +198,7 @@ class LaunchChecksTests(unittest.TestCase):
             self.assertLessEqual(timeout, 10)
             f.runner.calls.append((argv, timeout, None))
             f.runner.environments.append(env)
+            state['preflight_environments'].append(dict(env))
             self.assertEqual(cwd, request.cwd)
             self.assertEqual(env['CODEX_RESTORE_NO_AUTO'], '1')
             identity = check_identity(state['identity'])
@@ -205,6 +207,40 @@ class LaunchChecksTests(unittest.TestCase):
         f.runner.run = run
         f.runner.codex_config = codex_config
         return module, paths, request, state, bodies
+
+    def test_preflight_drops_parent_terminal_bindings_without_mutating_parent(self):
+        bindings = ({}, {'ITERM_SESSION_ID': 'parent', 'TERM_SESSION_ID': 'parent'},
+                    {'ITERM_SESSION_ID': 'parent'}, {'TERM_SESSION_ID': 'parent'},
+                    {'ITERM_SESSION_ID': '', 'TERM_SESSION_ID': ''},
+                    {'ITERM_SESSION_ID': ''}, {'TERM_SESSION_ID': ''},
+                    {'ITERM_SESSION_ID': 'parent', 'TERM_SESSION_ID': 'other'},
+                    {'ITERM_SESSION_ID': '', 'TERM_SESSION_ID': 'parent'},
+                    {'ITERM_SESSION_ID': 'parent', 'TERM_SESSION_ID': ''})
+        for mode in ('handoff', 'resume'):
+            for binding in bindings:
+                with self.subTest(mode=mode, binding=binding), Fixture() as f:
+                    expected_codex_home = str(f.home/'other-codex')
+                    environment = dict(binding, CODEX_HOME=expected_codex_home,
+                                       ZDOTDIR=str(f.home/'shell'))
+                    with patch.dict(os.environ, environment):
+                        m, paths, request, state, bodies = self.setup_launch(f)
+                        if mode == 'resume':
+                            request = replace(request, handoff=None, resume_session_id=RESUME_ID)
+                            transcript(paths.codex_home/'sessions'/('rollout-'+RESUME_ID+'.jsonl'), f.home)
+                        parent_before = dict(os.environ)
+                        result, findings = m.inspect_launch(paths, request, f.runner)
+                        self.assertEqual(findings, [])
+                        self.assertIsNotNone(result)
+                        captured_environments = state['preflight_environments']
+                        self.assertEqual(len(captured_environments), 2)
+                        for child_env in captured_environments:
+                            self.assertNotIn('ITERM_SESSION_ID', child_env)
+                            self.assertNotIn('TERM_SESSION_ID', child_env)
+                            self.assertEqual(child_env['CODEX_RESTORE_NO_AUTO'], '1')
+                            self.assertEqual(child_env['CODEX_HOME'], expected_codex_home)
+                            for key in ('HOME', 'ZDOTDIR', 'PATH'):
+                                self.assertEqual(child_env[key], parent_before[key])
+                        self.assertEqual(dict(os.environ), parent_before)
 
     def test_invalid_paths_create_no_side_effects(self):
         with Fixture() as f:
