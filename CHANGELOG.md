@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+Launcher preflight now removes inherited terminal IDs only from its private
+login-shell environment, preserving parent appearance and snapshots in both
+handoff/resume modes. Appearance independently matches the calling shell's tty
+device to the explicitly selected iTerm2 session before any profile or snapshot
+mutation, including observer cleanup. Missing/mismatched tty safely skips;
+supervisor pipes and nested interactive shells on their own terminal still work.
+Update both runtime helpers together and open a fresh shell: already running
+shells retain their loaded hook and may still reference an older runtime without
+this protection. An old caller invoking the new Python helper without tty safely
+skips; updating does not retrofit running shells.
+No public options or project-rule schema changes. Fixture acceptance does not
+establish live iTerm2 behavior.
+
 Added opt-in `project-launcher` and `--project-launcher-config` for plan/install:
 ordered native project buttons open a fresh login-shell tab in the same window.
 Local strict JSON selects existing target profiles and project directories;

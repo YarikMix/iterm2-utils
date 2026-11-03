@@ -101,6 +101,21 @@ _APPEARANCE_KEYS = frozenset({
 })
 
 
+def _tty_device(path: str) -> int | None:
+    """Compare terminal aliases by character-device identity inside the worker."""
+    if not isinstance(path, str) or not path.startswith('/') or '\x00' in path:
+        return None
+    try:
+        info = os.stat(path)
+        return info.st_rdev if stat.S_ISCHR(info.st_mode) else None
+    except (OSError, ValueError):
+        return None
+
+
+class _TerminalMismatch(Exception):
+    pass
+
+
 class _API:
     """Optional official SDK; importing the rules module never imports it."""
 
@@ -115,6 +130,10 @@ class _API:
     async def find(self, terminal):
         app = await self.sdk.async_get_app(self.connection)
         return app.get_session_by_id(terminal)
+
+    async def owns_terminal(self, session, device: int) -> bool:
+        return session is not None and device is not None and _tty_device(
+            await session.async_get_variable('tty')) == device
 
     async def job_name(self, session):
         return await session.async_get_variable('jobName')
@@ -234,8 +253,21 @@ async def _operate(request):
             if phase == 'probe':
                 return 'ready'
 
+            device = request.get('device')
+            owned = False
+
+            async def require_ownership():
+                nonlocal owned
+                # A failed ownership read must also suppress snapshot cleanup.
+                owned = False
+                if device is None or not await api.owns_terminal(session, device):
+                    raise _TerminalMismatch()
+                owned = True
+
+            await require_ownership()
             preserved = None
             async def write():
+                await require_ownership()
                 if request.get('preserve'):
                     return await api.restore(session, preserved, request.get('launch_id'))
                 if phase != 'shell':
@@ -259,6 +291,7 @@ async def _operate(request):
                         if request.get('preserve'):
                             preserved = await api.snapshot(session)
                         # A matched launch also invalidates an older preserved snapshot.
+                        await require_ownership()
                         await api.save_snapshot(session, preserved, request.get('launch_id'))
                     elif request.get('preserve'):
                         preserved = await api.take_snapshot(session, request.get('launch_id'))
@@ -290,8 +323,11 @@ async def _operate(request):
                             applied = await write() or applied
                     return 'applied' if applied else 'ignored' if request.get('preserve') else 'timeout'
                 finally:
-                    if phase == 'return':
+                    if phase == 'return' and owned:
+                        await require_ownership()
                         await api.clear_snapshot(session, request.get('launch_id'))
+    except _TerminalMismatch:
+        return 'ignored'
     except TimeoutError:
         return 'timeout'
     except Exception:
@@ -378,14 +414,15 @@ def _supervise(request, environment):
 
 
 def apply(config: Path, cwd: Path, phase: str, *, environment: dict[str, str],
-          ready_fd: int | None = None, launch_id: str | None = None) -> str:
+          ready_fd: int | None = None, launch_id: str | None = None,
+          tty: str | None = None) -> str:
     """Apply this physical directory's rule to its explicit iTerm2 session."""
     terminal = terminal_from_environment(environment)
     if terminal is None or environment.get('TMUX'):
         return 'ignored'
     if phase not in {'shell', 'launch', 'return'}:
         return 'unavailable'
-    request = {'terminal': terminal, 'phase': phase, 'config': str(config), 'cwd': str(cwd)}
+    request = {'terminal': terminal, 'phase': phase, 'config': str(config), 'cwd': str(cwd), 'tty': tty}
     if launch_id is not None:
         if not isinstance(launch_id, str) or re.fullmatch(r'[0-9]{1,20}-[0-9]{1,20}', launch_id) is None:
             return 'unavailable'
@@ -401,6 +438,10 @@ def _run_request(request):
     """Filesystem checks also run within the supervisor's hard deadline."""
     try:
         if request['phase'] != 'probe':
+            device = _tty_device(request.get('tty'))
+            if device is None:
+                return 'ignored'
+            request = {**request, 'device': device}
             rule = select_rule(load_rules(Path(request['config'])), Path(request['cwd']))
             if rule is None:
                 if request['phase'] == 'shell':
@@ -442,13 +483,14 @@ def _main():
             parser.add_argument('--phase', choices=('shell', 'launch', 'return'))
             parser.add_argument('--ready-fd', type=int)
             parser.add_argument('--launch-id')
+            parser.add_argument('--tty')
             with open(os.devnull, 'w') as quiet, redirect_stderr(quiet):
                 args = parser.parse_args()
             if args.probe:
                 result = probe(environment=dict(os.environ))
             elif args.config is not None and args.cwd is not None and args.phase:
                 result = apply(args.config, args.cwd, args.phase, environment=dict(os.environ),
-                               ready_fd=args.ready_fd, launch_id=args.launch_id)
+                               ready_fd=args.ready_fd, launch_id=args.launch_id, tty=args.tty)
     except (Exception, SystemExit):
         pass
     print(result)

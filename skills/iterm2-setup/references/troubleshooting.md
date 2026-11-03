@@ -117,6 +117,22 @@ shared runtime remains for other selected features. Do not reset open tabs or
 remove unowned resources to make diagnostics look clean. Generated startup omits
 appearance source after removal; already running shells are not changed remotely.
 
+Appearance also requires the calling shell's terminal device to match the `tty`
+of the explicit iTerm2 session. An inherited UUID, another PTY or a successful
+read-only probe is insufficient. Missing/mismatched terminal, conflicting IDs,
+closed session or API errors safely skip all color/icon and snapshot writes,
+including delayed cleanup; there is no active-tab fallback. Device aliases are
+compared by identity, and supervisor pipes remain supported. Nested interactive
+shells on the same terminal continue to work.
+
+Update delivers appearance.zsh and appearance.py together. Already running
+shells keep their loaded hook and may still reference the old immutable runtime
+without this protection. Old callers safely skip only when invoking the new
+Python helper without tty. Open a fresh shell to activate the new hook; update
+does not retrofit running shells. Do not restart user tabs remotely.
+Launcher preflight additionally removes both parent terminal IDs only from its
+private login-shell environment; parent state is preserved and newly created
+tabs obtain their own binding. Commands, JSON rules and selection are unchanged.
 
 ## Project launcher
 

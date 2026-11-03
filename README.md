@@ -129,7 +129,11 @@ fallback к `it2 tab new --command`, send/run/send_text.
 Проверка effective config выполняет обычную инициализацию app-server и
 `config/read` в выбранном login shell/cwd, без thread/turn start. Она может
 создавать штатные state/log/recovery SQLite-файлы Codex и выполнять shell startup;
-это не filesystem-read-only команда. Перед запуском повторно проверяется identity
+это не filesystem-read-only команда. Служебное окружение login shell не получает
+родительские `ITERM_SESSION_ID`/`TERM_SESSION_ID`; окружение родителя сохраняется,
+его цвет/иконка и appearance snapshot до создания вкладки не изменяются. Новая
+вкладка получает собственную привязку iTerm2 и штатное оформление. Перед запуском
+повторно проверяется identity
 shell/executable/config-home. Профиль сверяется с материализованным preference
 snapshot по уникальным name/GUID; устаревший внешний plist и конкурентное изменение
 runtime bindings не исключены. Подробнее — [границы проверки](docs/compatibility.md).
@@ -188,6 +192,15 @@ python3 -m iterm2_utils doctor --json
 пакетный менеджер. CLI не ставит отсутствующие агенты/Peekaboo автоматически.
 Отсутствие Python 3.11+ — prerequisite установщика, а не повод ставить второго
 агента. Подробности: [features](skills/iterm2-setup/references/features.md).
+
+Оформление требует совпадения устройства терминала вызывающей shell с `tty`
+явно выбранной сессии iTerm2: одного унаследованного UUID недостаточно. Без tty,
+при несовпадении или ошибке API пропускаются все изменения, включая snapshot;
+успешный API probe подтверждает только доступ. Вложенная интерактивная shell в том
+же терминале работает штатно; pipes supervisor этому не мешают. После обновления
+нужна свежая shell: уже открытая может вызывать старый runtime без новой защиты.
+Старый caller безопасно пропускает оформление только при вызове нового helper без
+терминала. Установщик не перезапускает рабочие shell.
 
 Опция [`appearance`](docs/repo-appearance.md) выбирается явно через
 `--features appearance --appearance-config /path/to/rules.json` в plan/install.

@@ -5,7 +5,8 @@ function _iterm2_utils_appearance {
   [[ -o interactive && ${TERM_PROGRAM-} == iTerm.app && -z ${TMUX-} ]] || return 0
   [[ -n ${ITERM2_UTILS_PYTHON-} && ${ITERM2_UTILS_APPEARANCE_CONFIG-} == /* ]] || return 0
   zmodload zsh/system 2>/dev/null || return 0
-  local phase=$1 cwd=$2 fd clean_fd child result discard
+  local phase=$1 cwd=$2 tty=$TTY fd clean_fd child result discard
+  [[ -n $tty ]] || return 0
   local -a ready_arguments=()
   if [[ $phase == launch ]]; then
     ready_arguments=(--ready-fd 3)
@@ -36,7 +37,7 @@ function _iterm2_utils_appearance {
     exec {fd}< <(
       print -r -- "$sysparams[pid]"
       exec "$ITERM2_UTILS_PYTHON" "$_iterm2_utils_appearance_root/appearance.py" \
-        --config "$ITERM2_UTILS_APPEARANCE_CONFIG" --cwd "$cwd" --phase "$phase" "${ready_arguments[@]}" 3>&1 >/dev/null 2>&1
+        --config "$ITERM2_UTILS_APPEARANCE_CONFIG" --cwd "$cwd" --phase "$phase" --tty "$tty" "${ready_arguments[@]}" 3>&1 >/dev/null 2>&1
     )
     read -r child <&$fd || return 0
     [[ $child == <-> ]] || return 0

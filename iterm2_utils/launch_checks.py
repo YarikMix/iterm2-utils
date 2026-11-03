@@ -216,7 +216,7 @@ def _metadata_command(paths, expected=None):
     code = ('import json,sys; ' + f'raw=dict(zip({keys!r},sys.argv[1:9])); ' +
             f'raw["functions"]=dict(zip({FUNCTIONS!r},sys.argv[9:])); ')
     if expected is None:
-        code += 'print(json.dumps({"iterm2_launch_identity":raw}),flush=True)'
+        code += 'print(chr(10)+json.dumps({"iterm2_launch_identity":raw}),flush=True)'
     else:
         values = asdict(expected)
         values = {key: str(value) if isinstance(value, Path) else value for key, value in values.items()}
@@ -348,6 +348,8 @@ def inspect_launch(paths: Paths, request: LaunchRequest, runner: Runner) -> tupl
         return None, [_finding('launch_profile_unverified', 'Window/profile state could not be verified; use iterm2-setup.')]
     try:
         env = dict(os.environ, CODEX_RESTORE_NO_AUTO='1')
+        env.pop('ITERM_SESSION_ID', None)
+        env.pop('TERM_SESSION_ID', None)
         reference = _references(paths, Path(zsh), runner, env)
         script = (_metadata_command(paths)+'\n'
                   'IFS= read -r _iterm2_launch_continue || exit 1\n'
