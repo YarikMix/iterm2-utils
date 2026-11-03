@@ -15,8 +15,8 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from . import state
-from .config import jsonfile, tomlfile, zshrc, preferences, mcp
-from .models import SymlinkEdit, FileEdit, PreferenceEdit, RegistrationEdit, Receipt, Outcome, Finding, Plan, Context
+from .config import jsonfile, tomlfile, zshrc, preferences, mcp, iterm
+from .models import SymlinkEdit, FileEdit, PreferenceEdit, RegistrationEdit, ProfileBarEdit, StatusBarPositionEdit, Receipt, Outcome, Finding, Plan, Context
 from .commands import Runner
 
 # Registration backend uses the transaction Context for every inspection and write.
@@ -111,6 +111,13 @@ def _diff(before, after, prefix=()):
 
 
 def _compile(edit):
+    if isinstance(edit,ProfileBarEdit):
+        iterm.identifier(edit.guid)
+        iterm.validate_bar(edit.before); iterm.validate_bar(edit.after)
+        return [_resource('profile_bar',edit.guid,{},_value(edit.before),_value(edit.after),edit.owner)]
+    if isinstance(edit,StatusBarPositionEdit):
+        iterm.validate_position(edit.before); iterm.validate_position(edit.after)
+        return [_resource('status_bar_position',iterm.DOMAIN,{},_value(edit.before),_value(edit.after),edit.owner)]
     if isinstance(edit,SymlinkEdit):
         if not edit.path.is_absolute():
             raise ValueError('Invalid symlink address')
@@ -129,7 +136,7 @@ def _compile(edit):
     old, new = edit.before, edit.after
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else edit.mode
     locator = {'mode':mode}
-    if edit.path.name == 'iterm2-utils.json':
+    if edit.path.name in {'iterm2-utils.json','iterm2-utils-project-launcher.json'}:
         return [_resource('file',path,locator,_encode(old),_encode(new),edit.owner)]
     if edit.path.suffix in {'.json','.toml'} and new is not None:
         kind = edit.path.suffix[1:]
@@ -192,6 +199,10 @@ def _read(r,runner,context):
         if path.exists():
             raise ValueError('Existing non-symlink resource')
         return _value(exists=False)
+    if kind == 'profile_bar':
+        return iterm.read_bar(r['target'],context,runner)
+    if kind == 'status_bar_position':
+        return iterm.read_position(context,runner)
     if kind == 'preference':
         return preferences.read(runner,r['target'],loc['key'])
     if kind == 'registration':
@@ -250,6 +261,14 @@ def _set(r,value,runner,context, *, expected):
         finally:
             os.close(directory)
         return
+    if kind == 'profile_bar':
+        iterm.existing(value,iterm.validate_bar)
+        iterm.write_bar(r['target'],value['value'],context,runner,expected=expected)
+        return
+    if kind == 'status_bar_position':
+        iterm.existing(value,iterm.validate_position)
+        iterm.write_position(value['value'],context,runner,expected=expected)
+        return
     if kind == 'preference':
         preferences.write(runner,r['target'],loc['key'],value)
         return
@@ -282,8 +301,41 @@ def _set(r,value,runner,context, *, expected):
     else:
         patcher = jsonfile.patch if kind=='json' else tomlfile.patch
         result = patcher(raw or (b'{}' if kind=='json' else b''),tuple(loc['pointer']),value['value'],remove=not value['exists'])
+    if kind == 'file' and path == (context.paths.profiles/'iterm2-utils-project-launcher.json').resolve():
+        old_guids = _project_guids(raw)
+        removed = old_guids - _project_guids(result)
+        if removed:
+            replacements = []
+            if result is not None:
+                document = json.loads(result)
+                if any(g in json.dumps(document) for g in removed):
+                    raise ValueError('Replacement retains deleted profile references')
+                retained = _project_guids(result)
+                replacements = [dict(guid=row['Guid'],bar={k:row[k] for k in iterm.BAR_KEYS})
+                    for row in json.loads(raw)['Profiles'] if row['Guid'] in retained]
+            iterm.ensure_unreferenced(removed,old_guids,context,runner,replaced_bars=replacements)
     mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else loc['mode']
     _write_file(path,result,mode,expected=raw)
+
+
+def _project_guids(raw):
+    if raw is None:
+        return set()
+    document = json.loads(raw)
+    if type(document) is not dict or type(document.get('Profiles')) is not list:
+        raise ValueError('Invalid owned project profiles')
+    guids = {iterm.identifier(row['Guid']) for row in document['Profiles']}
+    if len(guids) != len(document['Profiles']):
+        raise ValueError('Duplicate owned project GUID')
+    return guids
+
+
+def _deletes_projects(r, context):
+    if r['kind'] != 'file' or r['target'] != str((context.paths.profiles/'iterm2-utils-project-launcher.json').resolve()):
+        return False
+    def decode(value):
+        return base64.b64decode(value['value'],validate=True) if value['exists'] else None
+    return bool(_project_guids(decode(r['before'])) - _project_guids(decode(r['installed'])))
 
 
 def _backup(r,context):
@@ -298,7 +350,10 @@ def _backup(r,context):
 
 def _inverse(records,runner,context):
     unresolved,findings = [],[]
-    for r in reversed(records):
+    inverses = [dict(r,before=r['installed'],installed=r['before']) for r in reversed(records)]
+    inverses.sort(key=lambda r: _deletes_projects(r,context))
+    for inverse in inverses:
+        r = dict(inverse,before=inverse['installed'],installed=inverse['before'])
         try:
             current = _read(r,runner,context)
             if _same(current,r['before']):
@@ -310,7 +365,7 @@ def _inverse(records,runner,context):
                 raise ValueError('Unverified inverse')
         except Exception:
             unresolved.append(r)
-            findings.append(_finding('rollback_unresolved','Resource could not be restored safely; retained for recovery: ' + r['target'],r['owners'][0]))
+            findings.append(_finding('rollback_unresolved','Owned launcher resource could not be restored safely; retained for recovery.' if 'shared:project-launcher' in r['owners'] else 'Resource could not be restored safely; retained for recovery: ' + r['target'],r['owners'][0]))
     return list(reversed(unresolved)),findings
 
 
@@ -358,6 +413,7 @@ def _transaction(changes,result,context,runner):
     intent = _empty(result.selection)
     findings = []
     try:
+        changes = sorted(changes,key=lambda r: _deletes_projects(r,context))
         for r in changes:
             if not _same(_read(r,runner,context),r['before']):
                 raise ValueError('Concurrent change')
@@ -379,6 +435,8 @@ def _transaction(changes,result,context,runner):
         # A committed intent must be completed, never rolled back.
         if _bytes(journal/'phase') == b'commit':
             return False,[_finding('commit_pending','Receipt commit needs recovery before another mutation.')]
+        if isinstance(error,iterm.MutationUnknown):
+            return False,[_finding('native_outcome_unknown','Native mutation outcome is unknown; durable intent retained for recovery.')]
         unresolved,findings = _inverse(intent.resources,runner,context)
         findings.insert(0,_finding('transaction_failed','A resource changed or could not be written; transaction was stopped.'))
         if isinstance(error,zshrc.PlacementConflict):
@@ -502,6 +560,8 @@ def apply(plan: Plan, context: Context, runner: Runner, *, ui_snapshots=None, re
                         resource['owners'] = sorted(others)
                         retained.append(resource)
                     elif not _same(_read(resource,runner,context),resource['installed']):
+                        if 'shared:project-launcher' in resource['owners']:
+                            raise ValueError('Launcher checkpoint changed')
                         retained.append(resource)
                         findings.append(_finding('uninstall_changed','User-changed value was preserved; ownership remains unresolved.',resource['owners'][0]))
                     else:

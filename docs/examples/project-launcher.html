@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Панель проектов — вымышленный пример</title>
+<style>
+:root{color-scheme:dark;font:16px system-ui,sans-serif;background:#15171c;color:#e8eaf0}
+body{max-width:920px;margin:8vh auto;padding:24px}h1{font-size:1.65rem}p{line-height:1.6;color:#bfc5d2}
+.terminal{border:1px solid #525865;border-radius:12px;overflow:hidden;margin:32px 0;background:#20242c}
+.tabs{display:flex;background:#303541;padding:12px;gap:12px}.tab{padding:8px 20px;border-radius:6px;background:#20242c}
+pre{min-height:190px;padding:24px;margin:0;white-space:pre-wrap;color:#a6e3b7}
+.bar{display:flex;gap:12px;padding:12px 20px;border-top:1px solid #525865;flex-wrap:wrap}.project{border:1px solid #667085;border-radius:5px;padding:6px 14px}
+a{color:#a7c7ff}@media(max-width:480px){body{margin:0;padding:16px}.tabs{flex-wrap:wrap}}
+</style>
+<h1>Проекты в нижней панели iTerm2</h1>
+<p>Статический пример с вымышленными названиями. В iTerm2 каждая кнопка открывает новую активную вкладку с login shell в папке проекта, в том же окне.</p>
+<div class="terminal" role="img" aria-label="Пример терминала: вкладки Проект A и Проект B, внизу две кнопки проектов">
+<div class="tabs"><span class="tab">Проект A</span><span class="tab">Проект B</span></div>
+<pre>~ %
+</pre>
+<div class="bar"><span class="project">Проект A</span><span class="project">Проект B</span></div>
+</div>
+<p>Повторный клик создаёт ещё одну вкладку. В узком окне используйте меню Profiles. Это иллюстрация, а не интерактивная панель; браузер установленной функции не нужен.</p>
+<a href="../project-launcher.md">Конфигурация и команды CLI</a>
+</html>

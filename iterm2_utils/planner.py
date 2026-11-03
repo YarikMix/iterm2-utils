@@ -7,10 +7,11 @@ from dataclasses import replace
 from .models import ChangeSet, Context, Finding, Plan, Selection, UiStep, resource_pairs
 
 AGENTS = frozenset({'codex', 'claude'})
-FEATURES = frozenset({'clipboard', 'status', 'notifications', 'restore', 'mcp', 'shell', 'shortcuts', 'appearance'})
+FEATURES = frozenset({'clipboard', 'status', 'notifications', 'restore', 'mcp', 'shell', 'shortcuts', 'appearance', 'project-launcher'})
 SHORTCUTS = frozenset({'ctrl-v-ru', 'alt-enter', 'ctrl-q', 'resume'})
 CODEX_ONLY = frozenset({'clipboard', 'restore', 'appearance'})
 DESCRIPTIONS = {
+    'project-launcher': 'Explicit project buttons open a new shell tab in the same window.',
     'appearance': 'Codex-only repository tab color and icon; explicit session API verification remains pending.',
     'clipboard': 'Codex-only profile (&codex); tui.copy_on_select = "never"; shared iTerm2 CopySelection = false.',
     'status': 'Native cc-status for explicit tab UUIDs; Codex API error-event support is limited and reported separately.',
@@ -44,9 +45,9 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
                 add(feature, agent, 'codex_only', 'unavailable', 'This feature is supported only for Codex; Claude is unchanged.')
                 continue
             dependencies = {'iterm2', 'zsh'}
-            if feature != 'shell':
+            if feature not in {'shell','project-launcher'}:
                 dependencies.add(agent)
-            if feature in {'status', 'notifications', 'restore', 'mcp', 'appearance'}:
+            if feature in {'status', 'notifications', 'restore', 'mcp', 'appearance', 'project-launcher'}:
                 dependencies.add('python3')
             if feature == 'notifications':
                 dependencies.update({'terminal-notifier', 'it2', 'osascript'})
@@ -77,7 +78,7 @@ def validate(selection: Selection, context: Context) -> list[Finding]:
 
 def plan(context: Context, selection: Selection) -> Plan:
     findings = validate(selection, context)
-    from .features import profiles, shell, status, notifications, restore, mcp, appearance
+    from .features import profiles, shell, status, notifications, restore, mcp, appearance, project_launcher
     from . import migration
     supported = selection.features - CODEX_ONLY if 'codex' not in selection.agents else selection.features
     selected = replace(selection, features=frozenset(supported))
@@ -96,7 +97,7 @@ def plan(context: Context, selection: Selection) -> Plan:
     for builder, choice in ((migration.build,selected),(restore.build,selected),(profiles.build,selected),
                             (shell.runtime_payload,runtime_selection),(shell.build,runtime_selection),
                             (status.build,selected),(notifications.build,selected),(mcp.build,selected),
-                            (appearance.build,selected)):
+                            (appearance.build,selected),(project_launcher.build,selected)):
         try:
             built = builder(context, choice)
             if selected.agent_features is not None:
@@ -123,14 +124,17 @@ def plan(context: Context, selection: Selection) -> Plan:
                         {'status','restore'} if builder == migration.build else
                         {'notifications'} if builder == notifications.build else
                         {'restore'} if builder == restore.build else
-                        {'appearance'} if builder == appearance.build else {'mcp'})
+                        {'appearance'} if builder == appearance.build else
+                        {'project-launcher'} if builder == project_launcher.build else {'mcp'})
             for feature in sorted(choice.features & affected):
                 changes.findings.append(Finding(feature,None,'builder_conflict','conflict','A selected resource could not be safely prepared.'))
-    if 'appearance' not in selected.features:
+    if not selected.features & {'appearance','project-launcher'}:
         return Plan(selected, changes, fingerprint)
-    from .models import FileEdit
+    from .models import FileEdit, ProfileBarEdit, StatusBarPositionEdit
     digest = hashlib.sha256(fingerprint.encode())
     for edit in changes.edits:
         if isinstance(edit, FileEdit):
             digest.update(str(edit.path).encode()+b'\0'+(edit.after or b'')+b'\0')
+        elif isinstance(edit, (ProfileBarEdit, StatusBarPositionEdit)):
+            digest.update(json.dumps(edit.__dict__,sort_keys=True).encode())
     return Plan(selected, changes, digest.hexdigest())
