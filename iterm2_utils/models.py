@@ -98,6 +98,8 @@ class Context:
     installed: dict[str, dict]
     preferences: dict[str, dict[str, object]] = field(default_factory=dict)
     appearance_config: Path | None = None
+    project_launcher_config: Path | None = None
+    project_launcher_snapshot: dict | None = None
 
 
 @dataclass
@@ -127,6 +129,21 @@ class PreferenceEdit:
 
 
 @dataclass
+class ProfileBarEdit:
+    guid: str
+    before: dict
+    after: dict
+    owner: str
+
+
+@dataclass
+class StatusBarPositionEdit:
+    before: int
+    after: int
+    owner: str
+
+
+@dataclass
 class RegistrationEdit:
     agent: str
     name: str
@@ -145,7 +162,7 @@ class UiStep:
 
 @dataclass
 class ChangeSet:
-    edits: list[FileEdit | SymlinkEdit | PreferenceEdit | RegistrationEdit]
+    edits: list[FileEdit | SymlinkEdit | PreferenceEdit | RegistrationEdit | ProfileBarEdit | StatusBarPositionEdit]
     ui: list[UiStep]
     findings: list[Finding]
     consumers: dict[str, frozenset[str]] = field(default_factory=dict)

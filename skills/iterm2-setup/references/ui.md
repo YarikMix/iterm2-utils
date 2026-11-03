@@ -59,3 +59,13 @@ actual themes and preserve foreign chpwd hooks. Do not
 change neighboring tabs or the Default profile. Close only your own temporary
 tabs and restore only temporary settings you changed. Record actual fixture/live
 results; keep unperformed APS/theme/readability checks pending.
+
+
+For explicitly selected project-launcher, enable/authorize the existing iTerm2
+Python API in the chosen SDK interpreter. No permission dialog is automated.
+Install reads typed native profile/session inventory and verifies writes; this
+is not visual acceptance. Verify the chosen panel profiles, Bottom position,
+button order, new active tab in the same window and login shell/cwd manually
+after an authorized installation. Repeat clicks create further tabs. Missing
+folders warn and fall back to home; use Profiles in a narrow window. Do not
+claim this new CLI was live-tested from fixtures or read-only API access.

@@ -16,8 +16,8 @@ uses its confirmed cwd unless the user requests another, and reports an already
 open dialog instead of creating a duplicate without an explicit request.
 
 Official `iterm2` SDK must be importable by the Python 3.11+ running the CLI.
-It is loaded lazily for launch only; setup/bootstrap and unrelated commands do
-not require it. No automatic installation, environment search or permission
+It is loaded lazily for launch and explicitly selected API features; bootstrap
+and unrelated features do not require it. No automatic installation, environment search or permission
 changes occur. **Live-tested SDK version: 2.23**, with Python 3.13.7 and Codex 0.166.0
 and iTerm2 3.7.6 on 2026-11-02. Existing profile/config compatibility checks remain in effect.
 
@@ -481,3 +481,23 @@ callers safely skip only when invoking the new Python helper without tty. Existi
 user tabs are never restarted by
 the installer. Late APS beyond the existing bounded observer, tmux and protection
 against malicious processes sharing the user's API remain outside this scope.
+
+## Project launcher — fixture verification, 2026-11-03
+
+Explicit `project-launcher` supports iTerm2 exactly3.7.6, macOS/zsh and selected
+Python3.11+ with official iterm2 SDK and manually enabled/authorized Python API.
+[Local config/commands](project-launcher.md); [fictional HTML](examples/project-launcher.html).
+Native format was manually checked separately on3.7.6; this does not verify the
+new CLI installer.
+
+| Scope | Evidence boundary |
+| --- | --- |
+| Config/builder/CLI | TemporaryDirectory, strict schema, no-source update, stable ids/order, explicit targeting, login shell override, no-write plan/dry-run |
+| Ownership/lifecycle | Shared agent consumers, whole-file CAS, late single-bar-field conflict, fresh external/session references, actual engine set/inverse/recovery guards, durable uncertain intent |
+| Native adapter | Fake SDK and bounded child using a temporary fake module; typed materialized bar/position and exact replacement proof; hidden references and sessions remain scanned |
+| Live new CLI install/update/uninstall, visual panel and click behavior | **Not performed**; fixtures/readback do not establish acceptance |
+
+The remaining inventory-to-write race is not eliminated. No automatic session
+close, app launch or SDK install is performed. Missing folders after installation
+use native warning/home fallback; narrow windows use Profiles fallback. Real
+project names, inventory, configuration, paths and screenshots are not exported.

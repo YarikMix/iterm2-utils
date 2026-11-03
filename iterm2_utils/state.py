@@ -12,7 +12,7 @@ from .models import Receipt, Selection, UiStep
 
 VERSION = '1'
 FIELDS = {'kind','target','locator','before','installed','owners','version'}
-KINDS = {'file','json','toml','zsh','preference','registration','symlink','hook'}
+KINDS = {'file','json','toml','zsh','preference','registration','symlink','hook','profile_bar','status_bar_position'}
 
 
 def private_dir(path):
@@ -94,6 +94,19 @@ def validate(receipt):
                         base64.b64decode(value['value'],validate=True)
                     except (ValueError,binascii.Error):
                         raise ValueError('Invalid receipt payload') from None
+        if r['kind'] in {'profile_bar','status_bar_position'}:
+            from .config import iterm
+            if r['locator'] != {}:
+                raise ValueError('Invalid native resource address')
+            if r['kind'] == 'profile_bar':
+                iterm.identifier(r['target'])
+                validator = iterm.validate_bar
+            else:
+                if r['target'] != iterm.DOMAIN:
+                    raise ValueError('Invalid native position address')
+                validator = iterm.validate_position
+            for field in ('before','installed'):
+                iterm.existing(r[field], validator)
         if r['kind'] in {'file','json','toml','zsh','hook'}:
             mode = r['locator'].get('mode')
             if type(mode) is not int or not 0 <= mode <= 0o7777:

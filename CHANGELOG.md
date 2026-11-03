@@ -15,6 +15,16 @@ skips; updating does not retrofit running shells.
 No public options or project-rule schema changes. Fixture acceptance does not
 establish live iTerm2 behavior.
 
+Added opt-in `project-launcher` and `--project-launcher-config` for plan/install:
+ordered native project buttons open a fresh login-shell tab in the same window.
+Local strict JSON selects existing target profiles and project directories;
+stable GUIDs, owned 0600 config, whole-file Dynamic Profiles CAS and shared
+feature×agent receipts support repeat/update without the source and selective
+uninstall. Fresh native reference/session checks guard every target deletion,
+including rollback/recovery; typed grouped panel conflicts preserve later edits.
+Requires iTerm2 3.7.6 and a selected Python 3.11+ with SDK/API authorization.
+Fictional docs/HTML ship offline; new CLI live installation/rendering is unverified.
+
 Added explicit Codex-only `appearance`: repository JSON rules choose a session
 color and one of nine bundled PNGs or an owned copy of a custom PNG.
 Applies at interactive shell start, ordinary cd and Codex start (including

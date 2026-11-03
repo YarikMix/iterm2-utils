@@ -59,8 +59,8 @@ Python, доступный iTerm2 Python API и совместимый bundled `
 alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = never`.
 При блокере используйте `iterm2-setup` с явно выбранными функциями, например
 `clipboard`. Launch ничего не устанавливает, не ищет чужие Python-окружения и не выдаёт
-разрешения; restore и его receipt не требуются. SDK импортируется лениво только
-для `launch-codex`; setup/bootstrap и остальные команды его не требуют.
+разрешения; restore и его receipt не требуются. SDK импортируется лениво для `launch-codex` и явно выбранных API-функций;
+bootstrap и несвязанные функции его не требуют.
 Проверенная живая версия SDK: **2.23** (Python 3.13.7, Codex 0.166.0).
 Фактические результаты handoff/resume и ограничения — в
 [матрице приёмки](docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md).
@@ -185,6 +185,7 @@ python3 -m iterm2_utils doctor --json
 | `mcp` | Доступ выбранного агента к тексту терминала | uvx, серверный Python 3.12+, Python API/разрешение |
 | `shell` | Штатные отметки команд и навигация zsh в iTerm2 | — |
 | `shortcuts` | Только выбранные сочетания в профиле агента | Проверенная совместимость для Alt+Enter |
+| `project-launcher` | Кнопки проектов открывают новую shell-вкладку в выбранной папке | Локальный JSON, iTerm2 3.7.6, выбранный Python 3.11+ с SDK/API |
 | `appearance` | Цвет и составная иконка своей вкладки при старте shell, обычном `cd` и запуске Codex; только Codex | Выбранный Python 3.11+ с SDK `iterm2`, Python API/разрешение |
 
 Зависимости выбранных функций нужно перечислить до установки через существующий
@@ -201,13 +202,19 @@ python3 -m iterm2_utils doctor --json
 Старый caller безопасно пропускает оформление только при вызове нового helper без
 терминала. Установщик не перезапускает рабочие shell.
 
-Восьмая опция [`appearance`](docs/repo-appearance.md) выбирается явно через
+Опция [`appearance`](docs/repo-appearance.md) выбирается явно через
 `--features appearance --appearance-config /path/to/rules.json` в plan/install.
 Правила задают абсолютный root, `#RRGGBB` и одно из девяти встроенных имён либо свой
 PNG: `ios`, `android`, `kotlett`, `ios-mail`, `ios-cloud`, `android-mail`,
 `android-cloud`, `chrome-mail`, `chrome-cloud`. В шести сочетаниях платформа крупнее,
 а фирменный значок Почты (белая `@` на синем) или Облака (белый контур на синем)
 расположен справа снизу; веб-пары используют официальный цветной знак Chrome.
+Новая явно выбранная [`project-launcher`](docs/project-launcher.md) создаёт панель
+из локального JSON (`--project-launcher-config` для plan/install). Названия и
+папки остаются локальными; публичный [HTML-пример](docs/examples/project-launcher.html)
+использует только «Проект A» и «Проект B». Для добавления проекта измените свой
+JSON и повторите plan/install. Bootstrap не включает панель; новый CLI live не проверен.
+
 Базовые `ios`, `android`, `kotlett` сохранены. Прозрачные PNG 128×128 и SVG
 поставляются офлайн; происхождение и права на брендовые изображения — в
 [notices](THIRD_PARTY_NOTICES.md). Исходные JSON/PNG и checkout runtime после установки не нужны. Bootstrap

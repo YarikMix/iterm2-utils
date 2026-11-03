@@ -133,3 +133,20 @@ does not retrofit running shells. Do not restart user tabs remotely.
 Launcher preflight additionally removes both parent terminal IDs only from its
 private login-shell environment; parent state is preserved and newly created
 tabs obtain their own binding. Commands, JSON rules and selection are unchanged.
+
+## Project launcher
+
+`project_launcher_config` blocks missing/invalid local JSON or changed/unowned
+installed files. Supply the explicit source on first plan/install, only with
+selected project-launcher; keep its private contents local. SDK/version/native
+findings require existing Python3.11+ with iterm2, authorized API, iTerm2 3.7.6,
+unique existing target profiles and known session propagation. No auto-install,
+app launch or permission change is attempted. To add a project, edit the local
+JSON and rerun plan/install with the flag; update reuses the owned copy.
+
+CAS conflicts preserve user edits. Restore only the locally confirmed owned
+installed value or leave the resource for later resolution. External hidden
+references and live sessions prevent target deletion; close chosen tabs yourself
+or resolve your references, then retry. Unknown writes retain durable journal
+intent for next mutation recovery. No force cleanup, foreign-button removal or
+automatic process closing. New CLI live rendering/clicks remain unverified.
