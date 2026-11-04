@@ -9,7 +9,7 @@
 | `mcp` | Separately selected terminal-reading MCP for selected agents | uvx; server Python 3.12+, Python API and human authorization |
 | `shell` | Official zsh command marks/navigation in iTerm2 | zsh and iTerm2 |
 | `shortcuts` | Explicit subset: ctrl-v-ru, alt-enter, ctrl-q, resume | Detected compatible agent version for alt-enter |
-| `project-launcher` | Explicit project buttons create a new login-shell tab in the same window | Private local JSON; iTerm2 3.7.6, selected Python 3.11+ with SDK/API |
+| `project-launcher` | Explicit project buttons create a new login-shell tab in the same window; manage its entries with the [`iterm2-projects` skill](https://github.com/YarikMix/iterm2-utils/tree/main/skills/iterm2-projects) | Private local JSON; iTerm2 3.7.6, selected Python 3.11+ with SDK/API |
 | `appearance` | Repository color/composite icon at interactive shell start, ordinary cd and Codex start; outside resets the pair | Selected Python 3.11+ with `iterm2` SDK; enabled/authorized Python API |
 
 First release: macOS + zsh. Most agent integrations require the selected agent

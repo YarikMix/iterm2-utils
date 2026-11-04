@@ -9,6 +9,8 @@ Use the public repository https://github.com/YarikMix/iterm2-utils. Obtain it in
 new directory if needed, read its README and run commands from that checkout.
 This file can be read directly before the current agent refreshes skill discovery.
 No private skills, corporate services or workspace framework are required.
+Для операций со списком project-launcher используйте отдельный публичный навык
+https://github.com/YarikMix/iterm2-utils/tree/main/skills/iterm2-projects.
 
 1. Choose an available Python **3.11+** interpreter; check its version. If absent,
    report that prerequisite before executing setup. Do not install another agent

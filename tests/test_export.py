@@ -265,6 +265,28 @@ class ExportTests(unittest.TestCase):
             result = self.run_python(extracted, root/'home', 'tools/check_skill.py', 'skills/iterm2-setup')
             self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
 
+    def test_extracted_release_bootstraps_projects_skill_without_source_checkout(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp); repo = self.fixture(root)
+            archive = build_release.build(repo, root/'dist')
+            extracted = self.extract(archive, root/'extract')
+            repo.rename(root/'checkout-unavailable')
+            shutil.rmtree(root/'checkout-unavailable')
+            shutil.rmtree(root/'dist')
+            result = self.run_python(extracted, root/'home', '-m', 'iterm2_utils',
+                                     'bootstrap-skill', '--skill', 'iterm2-projects',
+                                     '--agent', 'both', '--json')
+            self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+            source = extracted/'skills/iterm2-projects'
+            expected = {path.relative_to(source): path.read_bytes() for path in source.rglob('*.md')}
+            for host in ('.codex', '.claude'):
+                target = root/'home'/host/'skills/iterm2-projects'
+                self.assertEqual({path.relative_to(target): path.read_bytes() for path in target.rglob('*.md')}, expected)
+                skill = (target/'SKILL.md').read_text()
+                self.assertIn('(references/projects.md)', skill)
+                self.assertNotIn('checkout-unavailable', skill)
+                self.assertNotIn(str(root), skill)
+
     def test_launch_and_standalone_restore_after_source_removed(self):
         with TemporaryDirectory() as tmp:
             root = Path(tmp); repo = self.fixture(root)

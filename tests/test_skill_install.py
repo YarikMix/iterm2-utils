@@ -24,6 +24,39 @@ class SkillInstallTests(unittest.TestCase):
             code = main(['bootstrap-skill', *args, '--json'])
         return code, json.loads(out.getvalue()) if out.getvalue() else None
 
+    def test_projects_bootstrap_selected_hosts(self):
+        with Fixture() as f:
+            code, out = self.invoke('--skill', 'iterm2-projects', '--agent', 'both')
+            self.assertEqual(code, 0, out)
+            self.assertEqual(out['selection']['features'], [])
+            self.assertEqual(out['selection']['shortcuts'], [])
+            for host in ('.codex', '.claude'):
+                target = f.home/host/'skills/iterm2-projects'
+                self.assertEqual(sorted(str(p.relative_to(target)) for p in target.rglob('*') if p.is_file()),
+                                 ['SKILL.md', 'references/projects.md'])
+            self.assertTrue((resolve_paths().data/'bootstrap-skill-iterm2-projects/receipt.json').is_file())
+            self.assertFalse((resolve_paths().data/'receipt.json').exists())
+
+    def test_projects_dry_run_does_not_probe_or_write(self):
+        with Fixture() as f:
+            before = f.snapshot()
+            with patch('iterm2_utils.cli.discover', side_effect=AssertionError('agent inspection')):
+                code, out = self.invoke('--skill', 'iterm2-projects', '--agent', 'both', '--dry-run')
+            self.assertEqual(code, 0, out)
+            self.assertEqual(f.snapshot(), before)
+            self.assertEqual(f.runner.calls, [])
+
+    def test_projects_foreign_changes_are_preserved(self):
+        with Fixture() as f:
+            self.assertEqual(self.invoke('--skill', 'iterm2-projects', '--agent', 'codex')[0], 0)
+            target = f.home/'.codex/skills/iterm2-projects/SKILL.md'
+            target.write_text('user edit')
+            before = f.snapshot()
+            code, out = self.invoke('--skill', 'iterm2-projects', '--agent', 'codex')
+            self.assertEqual(code, 2, out)
+            self.assertEqual(f.snapshot(), before)
+            self.assertEqual(target.read_text(), 'user edit')
+
     def test_default_bootstrap_retains_legacy_receipt(self):
         with Fixture() as f:
             code, output = self.invoke('--agent', 'both')

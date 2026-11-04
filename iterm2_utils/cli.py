@@ -69,7 +69,7 @@ def main(argv=None):
     launch_modes.add_argument('--resume', type=normalize_uuid)
     launch_parser.add_argument('--json', action='store_true')
     bootstrap = sub.add_parser('bootstrap-skill', help='Copy one public skill; select no terminal features.')
-    bootstrap.add_argument('--skill', choices=['iterm2-setup','iterm2-launch'], default='iterm2-setup')
+    bootstrap.add_argument('--skill', choices=['iterm2-setup','iterm2-launch','iterm2-projects'], default='iterm2-setup')
     bootstrap.add_argument('--agent', choices=['codex','claude','both'], required=True)
     bootstrap.add_argument('--dry-run', action='store_true')
     bootstrap.add_argument('--json', action='store_true')

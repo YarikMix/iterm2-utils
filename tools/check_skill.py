@@ -69,12 +69,12 @@ def check(root):
 if __name__ == '__main__':
     roots = [Path(sys.argv[1])] if len(sys.argv) > 1 else [
         Path(__file__).resolve().parents[1]/'skills'/name
-        for name in ('iterm2-setup', 'iterm2-launch')]
+        for name in ('iterm2-setup', 'iterm2-launch', 'iterm2-projects')]
     errors = [(root.name+': ' if len(roots) > 1 else '')+error
               for root in roots for error in check(root)]
     for error in errors:
         print(error, file=sys.stderr)
     if not errors:
-        print(('2 skills structurally valid' if len(roots) > 1 else 'Skill structure valid')+
+        print((f'{len(roots)} skills structurally valid' if len(roots) > 1 else 'Skill structure valid')+
               ' (not a behavioral evaluation).')
     raise SystemExit(bool(errors))
