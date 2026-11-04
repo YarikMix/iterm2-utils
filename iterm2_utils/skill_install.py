@@ -11,7 +11,11 @@ from .models import ChangeSet, Context, FileEdit, Finding, Plan, Selection
 AGENTS = frozenset({'codex', 'claude'})
 OWNER = 'bootstrap-skill'
 FILES = ('SKILL.md', 'references/features.md', 'references/ui.md', 'references/troubleshooting.md')
-BUNDLES = {'iterm2-setup': FILES, 'iterm2-launch': ('SKILL.md', 'references/handoff.md', 'references/resume.md')}
+BUNDLES = {
+    'iterm2-setup': FILES,
+    'iterm2-launch': ('SKILL.md', 'references/handoff.md', 'references/resume.md'),
+    'iterm2-projects': ('SKILL.md', 'references/projects.md'),
+}
 
 
 def _context(context, skill):
@@ -32,7 +36,7 @@ def build(context: Context, agents: frozenset[str], *, skill='iterm2-setup') -> 
     """Prepare selected destinations only; existing foreign directories are refused."""
     changes = ChangeSet([], [], [])
     if skill not in BUNDLES:
-        changes.findings.append(_conflict(None, 'invalid_skill', 'Select iterm2-setup or iterm2-launch.'))
+        changes.findings.append(_conflict(None, 'invalid_skill', 'Select iterm2-setup, iterm2-launch or iterm2-projects.'))
         return changes
     if not agents or agents - AGENTS:
         changes.findings.append(_conflict(None, 'invalid_agents', 'Select codex, claude or both.'))

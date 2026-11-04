@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Добавлен отдельный bootstrap-навык `iterm2-projects` для операций со списком
+проектов project-launcher; его receipts независимы для Codex и Claude.
+
 Launcher preflight now removes inherited terminal IDs only from its private
 login-shell environment, preserving parent appearance and snapshots in both
 handoff/resume modes. Appearance independently matches the calling shell's tty

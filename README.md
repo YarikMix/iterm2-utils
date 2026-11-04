@@ -65,6 +65,15 @@ bootstrap и несвязанные функции его не требуют.
 Фактические результаты handoff/resume и ограничения — в
 [матрице приёмки](docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md).
 
+Для управления списком проектов iTerm2 установите отдельный навык:
+
+```sh
+python3 -m iterm2_utils bootstrap-skill --skill iterm2-projects --agent codex --dry-run --json
+python3 -m iterm2_utils bootstrap-skill --skill iterm2-projects --agent codex
+```
+
+Выберите `--agent claude` или `--agent both` для соответствующих копий.
+
 В checkout или распакованном релизе один раз выберите доступный `python3`
 (либо явно выбранный пользователем Python), сохраните его абсолютный
 `sys.executable` и проверьте SDK именно им. Не разыменовывайте symlink virtualenv

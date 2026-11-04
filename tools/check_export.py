@@ -92,6 +92,8 @@ EXPORT_FILES = (
     'skills/iterm2-launch/SKILL.md',
     'skills/iterm2-launch/references/handoff.md',
     'skills/iterm2-launch/references/resume.md',
+    'skills/iterm2-projects/SKILL.md',
+    'skills/iterm2-projects/references/projects.md',
     'skills/iterm2-setup/SKILL.md',
     'skills/iterm2-setup/references/features.md',
     'skills/iterm2-setup/references/troubleshooting.md',
