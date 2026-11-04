@@ -3,7 +3,8 @@
 ## Unreleased
 
 Добавлен отдельный bootstrap-навык `iterm2-projects` для операций со списком
-проектов project-launcher; его receipts независимы для Codex и Claude.
+проектов project-launcher; его receipt независим от receipts других skill/feature,
+а при `both` один receipt описывает оба выбранных host.
 
 Launcher preflight now removes inherited terminal IDs only from its private
 login-shell environment, preserving parent appearance and snapshots in both
