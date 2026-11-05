@@ -8,6 +8,18 @@ description: Use when a user requests a separate Codex session or an exact exist
 Create at most one tab. Verify launch separately from task receipt or restored
 history. An internal-subagent or Claude Code request does not authorize a Codex tab.
 
+**Codex sandbox:** When this skill runs inside Codex, pass
+`sandbox_permissions: "require_escalated"` on the tool call before the first
+iTerm2 socket/API operation. Apply it to the selected `it2` session/tab/window/
+profile inventory, scoped observations such as `session get-var` and profile
+reads, and the single `launch-codex` mutation. Do not probe from the default
+sandbox first. This is tool-call metadata, not a CLI flag. Keep the approval
+prefix narrow: use only the selected bundled `it2` executable or the exact
+saved Python executable for `iterm2_utils`; do not request broad filesystem
+access. If the host cannot provide escalation, report launch as blocked and do
+not retry or create another tab automatically. Other hosts use their native
+permission mechanism.
+
 1. Use a verified checkout or unpacked release of
    https://github.com/YarikMix/iterm2-utils; read README there. Select available
    `python3` or the user's explicitly chosen Python and save its absolute

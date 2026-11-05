@@ -10,6 +10,15 @@ new directory if needed, read its README and run commands from that checkout.
 This file can be read directly before the current agent refreshes skill discovery.
 No private skills, corporate services or workspace framework are required.
 
+**Codex sandbox:** When this skill runs inside Codex, pass
+`sandbox_permissions: "require_escalated"` on the tool call before invoking
+`it2`, `doctor --live` or `reconcile`. Do not probe from the default sandbox
+first. This is tool-call metadata, not a CLI flag. Keep the approval prefix
+narrow: use only the selected bundled `it2` executable or the exact saved
+Python executable for `iterm2_utils`; do not request broad filesystem access.
+If the host cannot provide escalation, report the setup as blocked and do not
+retry automatically. Other hosts use their native permission mechanism.
+
 1. Choose an available Python **3.11+** interpreter; check its version. If absent,
    report that prerequisite before executing setup. Do not install another agent
    as a workaround. Run `python3 -m iterm2_utils doctor --json` read-only.
