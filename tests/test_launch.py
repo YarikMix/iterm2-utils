@@ -58,11 +58,11 @@ class LaunchTests(unittest.TestCase):
                 (f.bin/'zsh').unlink(); (f.bin/'zsh').symlink_to('/bin/zsh')
                 (f.bin/'codex').write_text('#!'+sys.executable+'\n'+'''import json, os, pathlib, sys
 if sys.argv[1:] == ['--version']:
-    print('codex-cli 0.166.0')
+    print('codex-cli 0.167.0')
 else:
     assert sys.argv[1:] == ['app-server', '--stdio'], sys.argv
     initialize = json.loads(input()); assert initialize['method'] == 'initialize'
-    print(json.dumps({'id': initialize['id'], 'result': {'userAgent': 'codex/0.166.0'}}), flush=True)
+    print(json.dumps({'id': initialize['id'], 'result': {'userAgent': 'codex/0.167.0'}}), flush=True)
     assert json.loads(input())['method'] == 'initialized'
     request = json.loads(input()); assert request['method'] == 'config/read'
     pathlib.Path(os.environ['HOME']+'/protocol.json').write_text(json.dumps(
@@ -147,7 +147,7 @@ else:
         handoff = f.home/'handoff.txt'
         handoff.write_text('PRIVATE_HANDOFF_CONTENT')
         request = LaunchRequest('window-one', 'Кодекс personal', f.home, handoff)
-        identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.166.0',
+        identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.167.0',
             home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
             functions={}, alias='', restore_root='', python=''))
         inspection = LaunchInspection(f.app/'Contents/Resources/utilities/it2', f.bin/'zsh', 'profile-one', identity)
@@ -357,7 +357,7 @@ if os.environ.get('LAUNCH_TEST_OBSERVE'):
     os.write(int(os.environ['LAUNCH_TEST_OBSERVE']), (json.dumps(sys.argv)+'\\n').encode())
     os.read(int(os.environ['LAUNCH_TEST_GATE']), 1)
 if sys.argv[1:] == ['--version']:
-    print('codex-cli 0.166.0')
+    print('codex-cli 0.167.0')
 elif sys.argv[1:] == ['--help']:
     print('--no-daemon')
 else:
@@ -596,7 +596,7 @@ else:
         paths = resolve_paths()
         log_code = 'import json,os,sys; open(os.environ["HOME"]+"/args.json","w").write(json.dumps(sys.argv[1:])); open(os.environ["HOME"]+"/invocations","a").write("1\\n"); open(os.environ["HOME"]+"/restore-auto","w").write(os.environ.get("CODEX_RESTORE_NO_AUTO", ""))'
         function = 'function codex { '+shlex.join([sys.executable, '-c', log_code])+' "$@"; }\n'
-        (f.bin/'codex').write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "codex-cli 0.166.0"; else echo BYPASSED >> "$HOME/bypass"; fi\n')
+        (f.bin/'codex').write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "codex-cli 0.167.0"; else echo BYPASSED >> "$HOME/bypass"; fi\n')
         (f.home/'.zshrc').write_text('export PATH='+shlex.quote(str(f.bin))+':/usr/bin:/bin\n'
             'print -r -- "$CODEX_RESTORE_NO_AUTO" >> "$HOME/startup"\n'
             'print -r -- "$PWD" > "$HOME/startup-cwd"\n'

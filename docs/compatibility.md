@@ -18,7 +18,7 @@ open dialog instead of creating a duplicate without an explicit request.
 Official `iterm2` SDK must be importable by the Python 3.11+ running the CLI.
 It is loaded lazily for launch and explicitly selected API features; bootstrap
 and unrelated features do not require it. No automatic installation, environment search or permission
-changes occur. **Live-tested SDK version: 2.23**, with Python 3.13.7 and Codex 0.166.0
+changes occur. **Live-tested SDK version: 2.23**, with Python 3.13.7 and Codex 0.167.0
 and iTerm2 3.7.6 on 2026-11-02. Existing profile/config compatibility checks remain in effect.
 
 The SDK addresses an explicit window and creates once via
@@ -119,7 +119,7 @@ Local final checks on Darwin 25.6.0 arm64, Python 3.13.7 and zsh 5.9:
 
 | Evidence | Scope / actual boundary |
 | --- | --- |
-| Codex source | Exactly rust-v0.166.0, `6ff1e1ca3b30fc8b914720681fcf5fe62e95f856`: canonical app-server `config/read`, effective `tui.alternate_screen` auto/always, `fullscreen_transcript` true and explicit `copy_on_select` never. Other Codex versions remain blocked/unverified. |
+| Codex source | Exactly rust-v0.167.0, `086ccc833bc9cf01024ad2dd6af7dbd421b6bf9a`: canonical app-server `config/read`, effective `tui.alternate_screen` auto/always, `fullscreen_transcript` true and explicit `copy_on_select` never. Other Codex versions remain blocked/unverified. |
 | iTerm2 source | v3.7.6, `7ce456b98db38d3f0bafd70ffec87752e69d5d58`: explicit `it2 tab new --window --profile --command`, curated profile name/GUID and session profile/job variables. Runtime checks require the bundled CLI flags; later versions have no new live acceptance claim. |
 | Fixture transport | Extracted release imports the `runtime` namespace and launches through the actual bundled `ITerm._run` using fake executable `it2`, with one tab and no restore receipt. Both default setup and explicit launch bootstrap run from the archive. |
 | Standalone restore | Fixture install survives deletion of its source checkout, compressed archive and extracted runtime source; installed help and NUL-protocol restore list/open/cancel remain usable. |

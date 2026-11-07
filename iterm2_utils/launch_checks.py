@@ -201,9 +201,9 @@ def _identity(raw):
     paths = [Path(raw[key]) for key in ('executable', 'home', 'codex_home', 'zdotdir')]
     if not all(p.is_absolute() and '\0' not in str(p) for p in paths):
         raise ValueError('launch_config_unverified')
-    if raw.get('alias') or raw['version'].strip() != 'codex-cli 0.166.0':
+    if raw.get('alias') or raw['version'].strip() != 'codex-cli 0.167.0':
         raise ValueError('launch_config_unverified')
-    return LaunchIdentity(paths[0], '0.166.0', paths[1], paths[2], paths[3], fingerprint,
+    return LaunchIdentity(paths[0], '0.167.0', paths[1], paths[2], paths[3], fingerprint,
                           raw['restore_root'], raw['python'])
 
 

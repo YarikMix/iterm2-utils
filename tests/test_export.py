@@ -64,7 +64,7 @@ class Window:
 async def async_get_app(connection):
     return SimpleNamespace(get_window_by_id=lambda wid: Window() if wid == "W1" else None)
 ''')
-    identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.166.0',
+    identity = _identity(dict(executable=str(f.bin/'codex'), version='codex-cli 0.167.0',
         home=str(f.home), codex_home=str(paths.codex_home), zdotdir=str(f.home),
         functions={}, alias='', restore_root='', python=''))
     inspection = LaunchInspection(tools.it2, f.bin/'zsh', 'profile-one', identity)
