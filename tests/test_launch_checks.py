@@ -161,13 +161,13 @@ class LaunchChecksTests(unittest.TestCase):
         request = module.LaunchRequest('window-one', 'Кодекс personal', f.home, handoff)
         state = {'profile': profile(), 'live': [{'guid': 'profile-one', 'name': request.profile}],
                  'config': {'tui': {'copy_on_select': 'never'}}, 'copy': False,
-                 'windows': [{'id': 'window-one'}], 'version': '0.166.0', 'preflight_environments': []}
+                 'windows': [{'id': 'window-one'}], 'version': '0.167.0', 'preflight_environments': []}
         bodies = {'direct': 'command codex "$@"', 'simple': 'command codex --no-daemon "$@"',
                   'dispatcher': 'fixture shipped dispatcher', '_iterm2_utils_classify': 'fixture classifier',
                   'restore': 'fixture restore', '_codex_restore_call': 'fixture call',
                   '_codex_restore_classify': 'fixture restore classifier',
                   '_codex_restore_previous_call': 'fixture previous', '_codex_restore_sessions': 'fixture sessions'}
-        state['identity'] = {'executable': str(f.bin/'codex'), 'version': 'codex-cli 0.166.0',
+        state['identity'] = {'executable': str(f.bin/'codex'), 'version': 'codex-cli 0.167.0',
                              'home': str(f.home), 'codex_home': str(paths.codex_home),
                              'zdotdir': str(paths.zshrc.parent), 'functions': {},
                              'alias': '', 'restore_root': '', 'python': ''}
@@ -354,7 +354,7 @@ class LaunchChecksTests(unittest.TestCase):
                 elif problem == 'zsh': (f.bin/'zsh').unlink()
                 elif problem == 'codex': (f.bin/'codex').unlink()
                 elif problem == 'it2': (f.app/'Contents/Resources/utilities/it2').unlink()
-                elif problem == 'version': state['identity']['version'] = 'codex-cli 0.167.0'
+                elif problem == 'version': state['identity']['version'] = 'codex-cli 0.166.0'
                 elif problem == 'alias': state['identity']['alias'] = 'codex -c secret=SECRET'
                 elif problem == 'rpc':
                     def fail(*a, **k): raise ValueError('SECRET_SENTINEL invalid config')
@@ -376,11 +376,11 @@ class LaunchChecksTests(unittest.TestCase):
                         'print -rn -- '+shlex.quote(noise)+'\n')
                     (f.bin/'codex').write_text('#!'+sys.executable+'\n'+'''import json,os,sys
 if sys.argv[1:] == ['--version']:
-    print('codex-cli 0.166.0')
+    print('codex-cli 0.167.0')
 else:
     assert sys.argv[1:] == ['app-server', '--stdio']
     assert json.loads(input())['method'] == 'initialize'
-    print(json.dumps({'id': 1, 'result': {'userAgent': 'codex/0.166.0'}}), flush=True)
+    print(json.dumps({'id': 1, 'result': {'userAgent': 'codex/0.167.0'}}), flush=True)
     assert json.loads(input())['method'] == 'initialized'
     request = json.loads(input())
     assert request['method'] == 'config/read' and request['params']['cwd'] == os.environ['HOME']
@@ -426,7 +426,7 @@ else:
             env = dict(os.environ, CODEX_RESTORE_NO_AUTO='1')
             # These are package fixture definitions in a non-login, no-rc shell.
             reference = m._references(paths, Path('/bin/zsh'), Runner(), env)
-            (f.bin/'codex').write_text('#!/bin/sh\nprintf "codex-cli 0.166.0\\n"\n')
+            (f.bin/'codex').write_text('#!/bin/sh\nprintf "codex-cli 0.167.0\\n"\n')
             (f.bin/'codex').chmod(0o755)
             for layers in ([], ['runtime/codex.zsh'], ['runtime/codex_restore/codex-resume.zsh'],
                     ['runtime/codex.zsh', 'runtime/codex_restore/codex-resume.zsh']):
@@ -476,7 +476,7 @@ else:
                         helper.write_bytes(helper.read_bytes()+b'\n# altered helper\n')
                     env = dict(os.environ, CODEX_RESTORE_NO_AUTO='1')
                     bodies.update(m._references(paths, Path('/bin/zsh'), Runner(), env))
-                    (f.bin/'codex').write_text('#!/bin/sh\nprintf "codex-cli 0.166.0\\n"\n')
+                    (f.bin/'codex').write_text('#!/bin/sh\nprintf "codex-cli 0.167.0\\n"\n')
                     source = 'builtin source '+shlex.quote(str(root/'codex-resume.zsh'))+'\n'
                     out = Runner().run(['/bin/zsh', '-dfc', source+m._metadata_command(paths)],
                                        timeout=3, env=env)
@@ -519,7 +519,7 @@ class ConfigTransportTests(unittest.TestCase):
 print(json.dumps({"iterm2_launch_identity":{"fixture":True}}),flush=True)
 assert input()=="iterm2-utils-continue"
 a=json.loads(input()); assert a["method"]=="initialize"
-print(json.dumps({"id":1,"result":{"userAgent":"codex/0.166.0"}}),flush=True)
+print(json.dumps({"id":1,"result":{"userAgent":"codex/0.167.0"}}),flush=True)
 assert json.loads(input())["method"]=="initialized"
 b=json.loads(input()); assert b["method"]=="config/read" and b["params"]["cwd"]==sys.argv[1]
 print(json.dumps({"id":2,"result":{"config":{"tui":{"copy_on_select":"never"}}}}),flush=True)

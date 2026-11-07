@@ -53,7 +53,7 @@ python3 -m iterm2_utils bootstrap-skill --skill iterm2-launch --agent codex
 и их receipts независимы; bootstrap не включает функции терминала. Для запуска
 нужны macOS, zsh, Python 3.11+ с официальным модулем `iterm2` именно в этом
 Python, доступный iTerm2 Python API и совместимый bundled `it2` (контракт
-проверен по v3.7.6) и **Codex 0.166.0**. Другие версии Codex блокируются как
+проверен по v3.7.6) и **Codex 0.167.0**. Другие версии Codex блокируются как
 непроверенные. Профиль должен уже существовать с совместимыми Cmd+C/Ctrl+C EN/RU,
 `CopySelection = false`; эффективные TUI-настройки Codex должны сохранять
 alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = never`.
@@ -61,7 +61,7 @@ alternate screen (`auto`/`always`), fullscreen transcript и `copy_on_select = n
 `clipboard`. Launch ничего не устанавливает, не ищет чужие Python-окружения и не выдаёт
 разрешения; restore и его receipt не требуются. SDK импортируется лениво для `launch-codex` и явно выбранных API-функций;
 bootstrap и несвязанные функции его не требуют.
-Проверенная живая версия SDK: **2.23** (Python 3.13.7, Codex 0.166.0).
+Проверенная живая версия SDK: **2.23** (Python 3.13.7, Codex 0.167.0).
 Фактические результаты handoff/resume и ограничения — в
 [матрице приёмки](docs/superpowers/validation/2026-11-01-launch-api-resume/acceptance.md).
 
